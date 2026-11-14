@@ -105,7 +105,7 @@ Para apagarlo sin desinstalarlo: `claude plugin disable panel-claude@jonico22-pl
 
 | Plugin | Qué trae |
 |---|---|
-| `panel-claude` | Panel lateral con carpeta, rama de git, modelo, contexto usado, tokens y costo, los subagentes de la sesión con sus tokens, la lista de tareas, una cuenta regresiva estimada del caché, los límites de uso y un botón Compact. La pestaña GIT muestra los archivos con cambios y los últimos commits. Se abre solo al iniciar; `/panel` lo abre y `/panel cerrar` lo cierra. La duración del caché se lee sola de `promptCacheTtl` en tu configuración de Claude Code (o la fijas en `/config` con 5m o 1h); el color del panel también se elige en `/config`. |
+| `panel-claude` | Panel lateral con carpeta, rama de git, modelo, contexto usado, tokens y costo, los subagentes de la sesión con sus tokens, la lista de tareas, una cuenta regresiva estimada del caché con una barra que se llena con el tiempo (naranja al 70 %, roja al 90 %), los límites de uso, los servidores MCP habilitados, los archivos con cambios de git y un botón Compact. La pestaña GIT muestra los archivos con cambios y los últimos commits. Se abre solo al iniciar; `/panel` lo abre y `/panel cerrar` lo cierra. La duración del caché se lee sola de `promptCacheTtl` en tu configuración de Claude Code (o la fijas en `/config` con 5m o 1h); el color del panel también se elige en `/config`. |
 
 ## Estructura
 

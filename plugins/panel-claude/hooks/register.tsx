@@ -6,6 +6,7 @@ import type {
   PanelGit,
   PanelInfo,
   PanelLimit,
+  PanelMcp,
   PanelTodo,
   PanelTotals,
 } from '../types'
@@ -47,6 +48,10 @@ const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
   shape: 'git-1',
 })
+// Los servidores MCP que aportan herramientas a la sesión.
+const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
+  shape: 'mcp-1',
+})
 const tab = atom({ plugin: 'panel-claude', key: 'tab' } as const, 'main')
 
 // El color del marco y los títulos; se elige en /config.
@@ -58,6 +63,9 @@ const ACCENTS: Record<string, string> = {
   azul: '#60a5fa',
 }
 const MAX_FILES = 12
+// En MAIN la lista de cambios es más corta: comparte el panel con todo lo demás.
+const MAX_MAIN_FILES = 6
+const MAX_MCP = 8
 const MAX_COMMITS = 6
 const TICK_MS = 5000
 const MAX_AGENTS = 6
@@ -107,6 +115,18 @@ const limitColor = (percentUsed: number): string =>
   percentUsed >= LIMIT_ERROR
     ? 'error'
     : percentUsed >= LIMIT_WARNING
+      ? 'warning'
+      : 'success'
+
+// Desde qué porcentaje de su vida gastada el caché pasa a naranja y a rojo.
+const CACHE_WARNING = 70
+const CACHE_ERROR = 90
+
+/** El color del caché según cuánto de su duración ya pasó. */
+const cacheColor = (percentSpent: number): string =>
+  percentSpent >= CACHE_ERROR
+    ? 'error'
+    : percentSpent >= CACHE_WARNING
       ? 'warning'
       : 'success'
 
@@ -192,6 +212,27 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
   }
 }
 
+/**
+ * Los servidores MCP habilitados, con cuántas herramientas da cada uno. El
+ * motor no los lista: se sacan de los nombres `mcp__<servidor>__<tool>`.
+ */
+const readMcp = async ($: EngineInterface): Promise<PanelMcp[]> => {
+  try {
+    const counts = new Map<string, number>()
+    for (const tool of await $.tool.list()) {
+      const server = tool.mcp ? tool.name.split('__')[1] : undefined
+      if (server === undefined || server === '') continue
+      counts.set(server, (counts.get(server) ?? 0) + 1)
+    }
+
+    return [...counts]
+      .map(([name, tools]) => ({ name, tools }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
+}
+
 /** Lee la sesión y guarda la foto que el panel dibuja. */
 const refresh = async (
   $: EngineInterface,
@@ -228,6 +269,8 @@ const refresh = async (
   await update($, info, () => next)
   const repo = branch === null ? null : await readGit($, cwd)
   await update($, git, () => repo)
+  const servers = await readMcp($)
+  await update($, mcp, () => servers)
 }
 
 /**
@@ -453,6 +496,11 @@ export const register: Register = (on, options) => {
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)
+    // Qué parte de la vida del caché ya pasó: la barra se llena con el tiempo.
+    const cacheSpent =
+      cacheLeft === null
+        ? null
+        : Math.min(100, Math.max(0, ((cacheMs - cacheLeft) / cacheMs) * 100))
     const compactNow = async () => {
       try {
         const done = await $.session.compact()
@@ -468,6 +516,7 @@ export const register: Register = (on, options) => {
     const sum = await read($, totals)
     const agentRows = (await read($, agents)).slice(-MAX_AGENTS)
     const todoRows = await read($, todos)
+    const servers = await read($, mcp)
     const doneTodos = todoRows.filter(todo => todo.status === 'completed').length
     // Si no caben todas, se muestran primero las que faltan.
     const shownTodos =
@@ -551,15 +600,30 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    const repo = await read($, git)
+    const files = repo?.files ?? []
+    const fileColor = (code: string) =>
+      code.includes('D')
+        ? 'error'
+        : code === '??' || code.includes('A')
+          ? 'success'
+          : 'warning'
+    // La lista de archivos con cambios, igual en MAIN y en GIT; solo cambia el tope.
+    const changes = (max: number) => (
+      <Box flexDirection="column">
+        {title(`Cambios · ${files.length}`)}
+        {files.length === 0 && <Text dimColor>Sin cambios pendientes.</Text>}
+        {files.slice(0, max).map(file => (
+          <Text wrap="truncate-start">
+            <Text color={fileColor(file.code)}>{file.code.padEnd(2)} </Text>
+            {fitPath(file.path, inner - 3)}
+          </Text>
+        ))}
+        {files.length > max && <Text dimColor>… y {files.length - max} más</Text>}
+      </Box>
+    )
+
     if (shown === 'git') {
-      const repo = await read($, git)
-      const files = repo?.files ?? []
-      const fileColor = (code: string) =>
-        code.includes('D')
-          ? 'error'
-          : code === '??' || code.includes('A')
-            ? 'success'
-            : 'warning'
 
       return (
         <Box
@@ -577,19 +641,7 @@ export const register: Register = (on, options) => {
             row('Rama', now.branch ?? '—', 'success')
           )}
 
-          {repo !== null && title(`Cambios · ${files.length}`)}
-          {repo !== null && files.length === 0 && (
-            <Text dimColor>Sin cambios pendientes.</Text>
-          )}
-          {files.slice(0, MAX_FILES).map(file => (
-            <Text wrap="truncate-start">
-              <Text color={fileColor(file.code)}>{file.code.padEnd(2)} </Text>
-              {fitPath(file.path, inner - 3)}
-            </Text>
-          ))}
-          {files.length > MAX_FILES && (
-            <Text dimColor>… y {files.length - MAX_FILES} más</Text>
-          )}
+          {repo !== null && changes(MAX_FILES)}
 
           {repo !== null && title('Commits')}
           {repo !== null && repo.commits.length === 0 && (
@@ -655,13 +707,15 @@ export const register: Register = (on, options) => {
             ) : cacheLeft <= 0 ? (
               <Text color="inactive">frío</Text>
             ) : (
-              <Text color={cacheLeft < 60_000 ? 'warning' : 'success'}>
+              <Text color={cacheColor(cacheSpent ?? 0)}>
                 ~{countdown(cacheLeft)}
               </Text>
             )}
           </Text>
           <Button key="compact" label="Compact" hotkey="c" onPress={compactNow} />
         </Box>
+        {cacheSpent !== null &&
+          bar(barCells(cacheSpent, inner), cacheColor(cacheSpent))}
 
         {now.limits.length > 0 && title('Límites')}
         {now.limits.map(limit => {
@@ -685,6 +739,26 @@ export const register: Register = (on, options) => {
             </Box>
           )
         })}
+
+        {servers.length > 0 && title(`MCP · ${servers.length}`)}
+        {servers.slice(0, MAX_MCP).map(server => (
+          <Box flexDirection="row" justifyContent="space-between" gap={1}>
+            <Text wrap="truncate-end">
+              <Text color="success">● </Text>
+              {server.name}
+            </Text>
+            <Box flexShrink={0}>
+              <Text dimColor>
+                {server.tools} {server.tools === 1 ? 'tool' : 'tools'}
+              </Text>
+            </Box>
+          </Box>
+        ))}
+        {servers.length > MAX_MCP && (
+          <Text dimColor>… y {servers.length - MAX_MCP} más</Text>
+        )}
+
+        {repo !== null && changes(MAX_MAIN_FILES)}
 
         {agentRows.length > 0 && title(`Subagentes · ${agentRows.length}`)}
         {agentRows.map(agent => {

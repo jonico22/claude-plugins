@@ -35,6 +35,9 @@ export type PanelGit = {
   commits: { hash: string; subject: string }[]
 }
 
+/** Un servidor MCP habilitado y cuántas herramientas aporta. */
+export type PanelMcp = { name: string; tools: number }
+
 /** Tokens acumulados de todos los turnos (principal y subagentes). */
 export type PanelTotals = { tokensIn: number; tokensOut: number }
 
@@ -65,6 +68,8 @@ declare module 'claude-code' {
       todos: Shaped<PanelTodo[]>
       /** null fuera de un repositorio. */
       git: Shaped<PanelGit | null>
+      /** Vacío si ningún servidor MCP aporta herramientas. */
+      mcp: Shaped<PanelMcp[]>
       tab: 'main' | 'git'
       cache: Shaped<PanelCache>
       /** La hora que el reloj del panel marcó por última vez. */

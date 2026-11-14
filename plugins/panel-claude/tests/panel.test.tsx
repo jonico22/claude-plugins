@@ -366,3 +366,111 @@ test('los límites llevan barra: verde, naranja desde 70 % y rojo desde 80 %', a
     await ui.unmount()
   }
 })
+
+test('la barra del caché se llena con el tiempo: naranja al 70 % y roja al 90 %', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('process.run', () => ({
+    value: {
+      exitCode: 128,
+      stdout: '',
+      stderr: '',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({
+    context: { tokens: 50_000, window: 200_000, percent: 25 },
+    rateLimits: [],
+    changed: ['context'],
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // bodyColumns 44 deja 40 celdas; el caché dura 5 minutos. La barra de
+  // contexto (25 %) mide 10 celdas, así que ningún largo de aquí choca con ella.
+  const barOf = async (cells: number) =>
+    ui.find({ type: 'Text', text: new RegExp(`^━{${cells}}$`) })
+
+  // Pasa la mitad: 20 celdas, verde.
+  await clock.advance(150_000)
+  expect((await barOf(20))?.props?.color).toBe('success')
+  // 3:30 de 5:00 es el 70 %: naranja.
+  await clock.advance(60_000)
+  expect((await barOf(28))?.props?.color).toBe('warning')
+  // 4:30 es el 90 %: rojo.
+  await clock.advance(60_000)
+  expect((await barOf(36))?.props?.color).toBe('error')
+  // Se acabó: barra llena y "frío". Con la barra llena, el texto que la
+  // envuelve mide lo mismo, así que aquí solo se comprueba el largo.
+  await clock.advance(60_000)
+  expect(await barOf(40)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /frío/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('MAIN lista los servidores MCP y los archivos con cambios', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  on('tool.list', () => ({
+    value: [
+      { name: 'Bash', description: '', mcp: false },
+      { name: 'mcp__engram__mem_save', description: '', mcp: true },
+      { name: 'mcp__engram__mem_search', description: '', mcp: true },
+      { name: 'mcp__easel__chart', description: '', mcp: true },
+    ],
+  }))
+  on('process.run', (_, e) => {
+    const stdout = e.argv.includes('status')
+      ? ' M hooks/register.tsx\n?? notas.md\n'
+      : e.argv.includes('log')
+        ? 'a1b2c3d\tPrimer commit\n'
+        : 'main\n'
+
+    return {
+      value: {
+        exitCode: 0,
+        stdout,
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  await has(/Contexto/)
+  await has(/MCP · 2/)
+  await has(/● easel/)
+  await has(/^1 tool$/)
+  await has(/● engram/)
+  await has(/^2 tools$/)
+  // Los cambios se ven sin pasar a la pestaña GIT.
+  await has(/Cambios · 2/)
+  await has(/hooks\/register\.tsx/)
+  await has(/\?\? notas\.md/)
+  await ui.unmount()
+})

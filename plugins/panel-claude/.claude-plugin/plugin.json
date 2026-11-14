@@ -1,6 +1,6 @@
 {
   "name": "panel-claude",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
   "author": {
     "name": "Jose Luis Yana"
