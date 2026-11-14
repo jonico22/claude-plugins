@@ -308,3 +308,61 @@ test('la pestaña GIT muestra cambios y commits', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /Contexto/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test('los límites llevan barra: verde, naranja desde 70 % y rojo desde 80 %', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('process.run', () => ({
+    value: {
+      exitCode: 128,
+      stdout: '',
+      stderr: '',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  // bodyColumns 44 deja 40 celdas de barra.
+  const cases = [
+    { five: 50, week: 69, fiveColor: 'success', weekColor: 'success' },
+    { five: 70, week: 79, fiveColor: 'warning', weekColor: 'warning' },
+    { five: 80, week: 95, fiveColor: 'error', weekColor: 'error' },
+  ]
+  for (const one of cases) {
+    await $.session.measure({
+      context: { window: 200_000 },
+      rateLimits: [
+        { kind: 'five_hour', percentUsed: one.five },
+        { kind: 'seven_day', percentUsed: one.week },
+        { kind: 'spend_limit', percentUsed: 10 },
+      ],
+      changed: ['rateLimits'],
+    })
+
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    const cells = (percent: number) => Math.round((percent / 100) * 40)
+    const fiveBar = await ui.find({
+      type: 'Text',
+      text: new RegExp(`^━{${cells(one.five)}}$`),
+    })
+    const weekBar = await ui.find({
+      type: 'Text',
+      text: new RegExp(`^━{${cells(one.week)}}$`),
+    })
+
+    expect(fiveBar?.props?.color).toBe(one.fiveColor)
+    expect(weekBar?.props?.color).toBe(one.weekColor)
+    await ui.unmount()
+  }
+})

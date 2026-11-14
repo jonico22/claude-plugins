@@ -96,6 +96,26 @@ const LIMIT_NAMES: Record<string, string> = {
   seven_day: 'Semana',
   spend_limit: 'Gasto',
 }
+// Los límites que llevan barra de progreso debajo de su fila.
+const LIMITS_WITH_BAR = new Set(['five_hour', 'seven_day'])
+// Desde qué porcentaje un límite pasa a naranja y a rojo.
+const LIMIT_WARNING = 70
+const LIMIT_ERROR = 80
+
+/** El color de un límite según cuánto se ha usado. */
+const limitColor = (percentUsed: number): string =>
+  percentUsed >= LIMIT_ERROR
+    ? 'error'
+    : percentUsed >= LIMIT_WARNING
+      ? 'warning'
+      : 'success'
+
+/**
+ * Cuántas celdas de `room` llena una barra al `percent` por ciento. Con
+ * cualquier uso, por poco que sea, la barra muestra al menos una celda.
+ */
+const barCells = (percent: number, room: number): number =>
+  Math.min(room, Math.max(percent > 0 ? 1 : 0, Math.round((percent / 100) * room)))
 
 /**
  * Acorta una ruta por el principio para que quepa en `room` celdas, dejando
@@ -469,11 +489,7 @@ export const register: Register = (on, options) => {
           : { color: 'success', label: 'OK' }
     // Ancho interior del marco: sin los dos bordes ni el relleno lateral.
     const inner = columns - 4
-    // Con cualquier uso, por poco que sea, la barra muestra al menos una celda.
-    const filled = Math.min(
-      inner,
-      Math.max(percent > 0 ? 1 : 0, Math.round((percent / 100) * inner)),
-    )
+    const filled = barCells(percent, inner)
 
     // Las dos filas de Contexto llevan sus palabras ("tokens", "in", "out",
     // "Costo") mientras quepan en una línea; en un panel angosto se quitan.
@@ -489,10 +505,16 @@ export const register: Register = (on, options) => {
       inner
 
     // Un solo marco, sin espacio entre secciones. El título va solo, sin raya:
-    // la única línea horizontal del panel es la barra de contexto.
+    // las únicas líneas horizontales del panel son las barras de progreso.
     const title = (text: string) => (
       <Text bold color={accent} wrap="truncate-end">
         {text}
+      </Text>
+    )
+    const bar = (cells: number, color: string) => (
+      <Text>
+        <Text color={color}>{'━'.repeat(cells)}</Text>
+        <Text dimColor>{'─'.repeat(inner - cells)}</Text>
       </Text>
     )
     const row = (label: string, value: string, color?: string) => (
@@ -611,10 +633,7 @@ export const register: Register = (on, options) => {
             ● {level.label} {percent}%
           </Text>
         </Box>
-        <Text>
-          <Text color={level.color}>{'━'.repeat(filled)}</Text>
-          <Text dimColor>{'─'.repeat(inner - filled)}</Text>
-        </Text>
+        {bar(filled, level.color)}
         <Box flexDirection="row" justifyContent="space-between" gap={1}>
           <Text>
             <Text dimColor>▲ </Text>
@@ -649,16 +668,21 @@ export const register: Register = (on, options) => {
           const left = limit.resetsAt === undefined ? null : limit.resetsAt - ticked
           const used = `${Math.round(limit.percentUsed)}%`
 
-          return row(
-            LIMIT_NAMES[limit.kind] ?? limit.kind,
-            left === null || left <= 0 || ticked === 0
-              ? used
-              : `${used} · ${countdown(left)}`,
-            limit.percentUsed >= 85
-              ? 'error'
-              : limit.percentUsed >= 60
-                ? 'warning'
-                : undefined,
+          const color = limitColor(limit.percentUsed)
+
+          return (
+            <Box flexDirection="column">
+              {row(
+                LIMIT_NAMES[limit.kind] ?? limit.kind,
+                left === null || left <= 0 || ticked === 0
+                  ? used
+                  : `${used} · ${countdown(left)}`,
+                // Por debajo del aviso el número va sin color; la barra sí lo lleva.
+                limit.percentUsed >= LIMIT_WARNING ? color : undefined,
+              )}
+              {LIMITS_WITH_BAR.has(limit.kind) &&
+                bar(barCells(limit.percentUsed, inner), color)}
+            </Box>
           )
         })}
 
