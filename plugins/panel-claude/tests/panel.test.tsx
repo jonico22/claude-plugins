@@ -219,7 +219,7 @@ test('muestra el caché, los límites y el botón Compact', async ($, on) => {
   // Pasan 90 segundos: el reloj del panel baja la cuenta.
   await clock.advance(90_000)
   const seen = await ui.find({ type: 'Text', text: /~\d/ })
-  expect(seen?.text).toBe('Caché ~3:30')
+  expect(seen?.text).toBe('~3:30')
   await has(/24% · 2h 13m/)
   await has(/^7%$/)
   await ui.press({ key: 'compact' })
@@ -259,7 +259,7 @@ test('el caché dura lo que dice promptCacheTtl en la configuración', async ($,
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const seen = await ui.find({ type: 'Text', text: /~\d/ })
-  expect(seen?.text).toBe('Caché ~1h 00m')
+  expect(seen?.text).toBe('~1h 00m')
   await ui.unmount()
 })
 

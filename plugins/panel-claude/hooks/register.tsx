@@ -553,12 +553,16 @@ export const register: Register = (on, options) => {
       `▲ ${tokensIn} in  ▼ ${tokensOut} out`.length + 1 + `Costo ${cost}`.length <=
       inner
 
-    // Un solo marco, sin espacio entre secciones. El título va solo, sin raya:
-    // las únicas líneas horizontales del panel son las barras de progreso.
-    const title = (text: string) => (
-      <Text bold color={accent} wrap="truncate-end">
-        {text}
-      </Text>
+    // Un solo marco. Cada sección empieza con una línea en blanco y su título,
+    // sin raya: las únicas líneas horizontales del panel son las barras de
+    // progreso. `action` va a la derecha del título (el botón Compact).
+    const title = (text: string, action?: JSX.Element) => (
+      <Box flexDirection="row" justifyContent="space-between" gap={1} marginTop={1}>
+        <Text bold color={accent} wrap="truncate-end">
+          {text}
+        </Text>
+        {action !== undefined && <Box flexShrink={0}>{action}</Box>}
+      </Box>
     )
     const bar = (cells: number, color: string) => (
       <Text>
@@ -671,7 +675,11 @@ export const register: Register = (on, options) => {
         {row('Rama', now.branch ?? 'sin git', now.branch === null ? 'inactive' : 'success')}
         {row('Modelo', now.model)}
 
-        {title('Contexto')}
+        {title(
+          'Contexto',
+          // Compactar actúa sobre el contexto: por eso vive en su título.
+          <Button key="compact" label="Compact" hotkey="c" onPress={compactNow} />,
+        )}
         <Box flexDirection="row" justifyContent="space-between" gap={1}>
           <Text>
             {used}
@@ -700,19 +708,14 @@ export const register: Register = (on, options) => {
           </Text>
         </Box>
         <Box flexDirection="row" justifyContent="space-between" gap={1}>
-          <Text>
-            <Text dimColor>Caché </Text>
-            {cacheLeft === null ? (
-              <Text dimColor>—</Text>
-            ) : cacheLeft <= 0 ? (
-              <Text color="inactive">frío</Text>
-            ) : (
-              <Text color={cacheColor(cacheSpent ?? 0)}>
-                ~{countdown(cacheLeft)}
-              </Text>
-            )}
-          </Text>
-          <Button key="compact" label="Compact" hotkey="c" onPress={compactNow} />
+          <Text dimColor>Caché</Text>
+          {cacheLeft === null ? (
+            <Text dimColor>—</Text>
+          ) : cacheLeft <= 0 ? (
+            <Text color="inactive">frío</Text>
+          ) : (
+            <Text color={cacheColor(cacheSpent ?? 0)}>~{countdown(cacheLeft)}</Text>
+          )}
         </Box>
         {cacheSpent !== null &&
           bar(barCells(cacheSpent, inner), cacheColor(cacheSpent))}
