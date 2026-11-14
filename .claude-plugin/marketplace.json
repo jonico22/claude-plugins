@@ -7,8 +7,8 @@
     {
       "name": "panel-claude",
       "source": "./plugins/panel-claude",
-      "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
-      "version": "0.4.0"
+      "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes y tareas",
+      "version": "0.5.0"
     }
   ]
 }

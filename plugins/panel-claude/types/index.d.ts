@@ -72,13 +72,19 @@ export type PanelGit = {
   }[]
 }
 
-/** Un servidor MCP habilitado y cuántas herramientas aporta. */
-export type PanelMcp = { name: string; tools: number }
+/** Un servidor MCP visto en la sesión: sus herramientas hoy y las máximas que dio. */
+export type PanelMcp = {
+  name: string
+  /** Herramientas que aporta ahora; 0 si cayó o se desconectó. */
+  tools: number
+  /** El mayor número de herramientas visto desde que empezó la sesión. */
+  max: number
+}
 
 /** Tokens acumulados de todos los turnos (principal y subagentes). */
 export type PanelTotals = { tokensIn: number; tokensOut: number }
 
-/** Un subagente de la sesión, con los tokens que lleva gastados. */
+/** Un subagente de la sesión, con sus tokens y cuánto lleva o duró. */
 export type PanelAgent = {
   id: string
   /** El tipo con el que se lanzó (`Explore`, `general-purpose`...). */
@@ -87,6 +93,10 @@ export type PanelAgent = {
   status: string
   tokensIn: number
   tokensOut: number
+  /** Cuándo lo vio el panel por primera vez, en milisegundos del reloj del motor. */
+  startedAt: number
+  /** Cuándo terminó o dejó de estar en la lista en vivo; ausente mientras corre. */
+  endedAt?: number
 }
 
 /** Una tarea de la lista de Claude. */
@@ -105,7 +115,7 @@ declare module 'claude-code' {
       todos: Shaped<PanelTodo[]>
       /** null fuera de un repositorio. */
       git: Shaped<PanelGit | null>
-      /** Vacío si ningún servidor MCP aporta herramientas. */
+      /** Los servidores vistos en la sesión; vacío si nunca hubo uno. */
       mcp: Shaped<PanelMcp[]>
       tab: 'main' | 'git' | 'tasks'
       cache: Shaped<PanelCache>

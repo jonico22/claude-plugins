@@ -34,7 +34,7 @@ const totals = atom(
 )
 
 const agents = atom({ plugin: 'panel-claude', key: 'agents' } as const, [], {
-  shape: 'agents-1',
+  shape: 'agents-2',
 })
 const todos = atom({ plugin: 'panel-claude', key: 'todos' } as const, [], {
   shape: 'todos-1',
@@ -65,9 +65,9 @@ const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
   shape: 'git-3',
 })
-// Los servidores MCP que aportan herramientas a la sesión.
+// Los servidores MCP vistos en la sesión, aunque ya no aporten herramientas.
 const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
-  shape: 'mcp-1',
+  shape: 'mcp-2',
 })
 const tab = atom({ plugin: 'panel-claude', key: 'tab' } as const, 'main')
 
@@ -112,6 +112,8 @@ const READ_FAIR = 30
 // este tiempo.
 const REREAD_MS = 1000
 const MAX_AGENTS = 6
+// Cuánto se queda en la lista un subagente que ya terminó.
+const ENDED_KEEP_MS = 600_000
 const MAX_TODOS = 12
 const ENDED = new Set(['completed', 'failed', 'killed'])
 
@@ -331,10 +333,10 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
 }
 
 /**
- * Los servidores MCP habilitados, con cuántas herramientas da cada uno. El
- * motor no los lista: se sacan de los nombres `mcp__<servidor>__<tool>`.
+ * Cuántas herramientas da hoy cada servidor MCP. El motor no los lista: se
+ * sacan de los nombres `mcp__<servidor>__<tool>`. Null si no se pudo leer.
  */
-const readMcp = async ($: EngineInterface): Promise<PanelMcp[]> => {
+const readMcp = async ($: EngineInterface): Promise<Map<string, number> | null> => {
   try {
     const counts = new Map<string, number>()
     for (const tool of await $.tool.list()) {
@@ -343,12 +345,21 @@ const readMcp = async ($: EngineInterface): Promise<PanelMcp[]> => {
       counts.set(server, (counts.get(server) ?? 0) + 1)
     }
 
-    return [...counts]
-      .map(([name, tools]) => ({ name, tools }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+    return counts
   } catch {
-    return []
+    return null
   }
+}
+
+/** Suma lo visto ahora a lo recordado: un servidor que falta queda con 0 herramientas. */
+const mergeMcp = (known: PanelMcp[], counts: Map<string, number>): PanelMcp[] => {
+  const rows = new Map<string, PanelMcp>()
+  for (const row of known) rows.set(row.name, { ...row, tools: 0 })
+  for (const [name, tools] of counts) {
+    rows.set(name, { name, tools, max: Math.max(rows.get(name)?.max ?? 0, tools) })
+  }
+
+  return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Lee la sesión y guarda la foto que el panel dibuja. */
@@ -397,8 +408,8 @@ const refresh = async (
   }
   const repo = branch === null ? null : await readGit($, cwd)
   await update($, git, () => repo)
-  const servers = await readMcp($)
-  await update($, mcp, () => servers)
+  const counts = await readMcp($)
+  if (counts !== null) await update($, mcp, known => mergeMcp(known, counts))
 }
 
 /**
@@ -408,14 +419,21 @@ const refresh = async (
  */
 const syncAgents = async ($: EngineInterface) => {
   const live = await $.agent.list()
+  const now = await $.clock.now()
 
   await update($, agents, known => {
     const rows = new Map<string, PanelAgent>()
     for (const row of known) {
-      rows.set(row.id, ENDED.has(row.status) ? row : { ...row, status: 'completed' })
+      rows.set(
+        row.id,
+        ENDED.has(row.status)
+          ? row
+          : { ...row, status: 'completed', endedAt: row.endedAt ?? now },
+      )
     }
     for (const one of live) {
       const before = rows.get(one.id)
+      const endedAt = before?.endedAt ?? (ENDED.has(one.status) ? now : undefined)
       rows.set(one.id, {
         id: one.id,
         type: one.type,
@@ -423,10 +441,14 @@ const syncAgents = async ($: EngineInterface) => {
         status: one.status,
         tokensIn: before?.tokensIn ?? 0,
         tokensOut: before?.tokensOut ?? 0,
+        startedAt: before?.startedAt ?? now,
+        ...(endedAt === undefined ? {} : { endedAt }),
       })
     }
 
-    return [...rows.values()].slice(-50)
+    return [...rows.values()]
+      .filter(row => row.endedAt === undefined || now - row.endedAt <= ENDED_KEEP_MS)
+      .slice(-50)
   })
 }
 
@@ -828,6 +850,11 @@ export const register: Register = (on, options) => {
     const agentRows = (await read($, agents)).slice(-MAX_AGENTS)
     const todoRows = await read($, todos)
     const servers = await read($, mcp)
+    const liveServers = servers.filter(server => server.tools > 0).length
+    const mcpTitle =
+      liveServers === servers.length
+        ? String(liveServers)
+        : `${liveServers} de ${servers.length}`
     const doneTodos = todoRows.filter(todo => todo.status === 'completed').length
     // Si no caben todas, se muestran primero las que faltan.
     const shownTodos =
@@ -1078,6 +1105,15 @@ export const register: Register = (on, options) => {
               : { glyph: '✗', color: 'error' }
             : { glyph: '●', color: 'warning' }
 
+          // Lo que lleva: corriendo con el reloj del panel, o lo que duró.
+          const lasted = countdown(
+            (agent.endedAt ?? Math.max(ticked, agent.startedAt)) - agent.startedAt,
+          )
+          const tokens = `▲ ${compact(agent.tokensIn)} ▼ ${compact(agent.tokensOut)}`
+          const hasRoomForTime =
+            `${mark.glyph} ${agent.type}`.length + 1 + tokens.length + 1 + lasted.length <=
+            inner
+
           return (
             <Box flexDirection="column">
               <Box flexDirection="row" justifyContent="space-between" gap={1}>
@@ -1087,7 +1123,8 @@ export const register: Register = (on, options) => {
                 </Text>
                 <Box flexShrink={0}>
                   <Text dimColor>
-                    ▲ {compact(agent.tokensIn)} ▼ {compact(agent.tokensOut)}
+                    {tokens}
+                    {hasRoomForTime ? ` ${lasted}` : ''}
                   </Text>
                 </Box>
               </Box>
@@ -1216,17 +1253,23 @@ export const register: Register = (on, options) => {
           )
         })}
 
-        {isMcpOn && servers.length > 0 && title(`MCP · ${servers.length}`)}
+        {isMcpOn && servers.length > 0 && title(`MCP · ${mcpTitle}`)}
         {(isMcpOn ? servers : []).slice(0, MAX_MCP).map(server => (
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Text wrap="truncate-end">
-              <Text color="success">● </Text>
+            <Text wrap="truncate-end" {...(server.tools === 0 ? { color: 'error' } : {})}>
+              <Text color={server.tools === 0 ? 'error' : 'success'}>
+                {server.tools === 0 ? '○ ' : '● '}
+              </Text>
               {server.name}
             </Text>
             <Box flexShrink={0}>
-              <Text dimColor>
-                {server.tools} {server.tools === 1 ? 'tool' : 'tools'}
-              </Text>
+              {server.tools === 0 ? (
+                <Text color="error">sin herramientas</Text>
+              ) : (
+                <Text dimColor>
+                  {server.tools} {server.tools === 1 ? 'tool' : 'tools'}
+                </Text>
+              )}
             </Box>
           </Box>
         ))}

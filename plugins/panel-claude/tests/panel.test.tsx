@@ -917,3 +917,67 @@ for (const one of SECTIONS) {
     await ui.unmount()
   })
 }
+
+test('los subagentes llevan su duración y los terminados se limpian a los 10 minutos', async ($, on) => {
+  measuredEngine(on)
+  const clock = mock.clock(on, { now: 1_000_000 })
+  let live: { id: string; type: string; description: string; status: string }[] = [
+    { id: 'a1', type: 'Explore', description: 'Buscar rutas', status: 'running' },
+  ]
+  on('agent.list', () => ({ value: live as never }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(turn('a1', 0, 100))
+  await clock.advance(65_000)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-tasks' })
+  // Activo: el tiempo corre con el reloj del panel.
+  expect(await ui.find({ type: 'Text', text: /▲ 100 ▼ 10 1:05/ })).toBeDefined()
+  await clock.advance(5000)
+  expect(await ui.find({ type: 'Text', text: /▲ 100 ▼ 10 1:10/ })).toBeDefined()
+
+  // Desaparece de la lista en vivo: queda con lo que duró.
+  live = []
+  await $.turn.complete(turn('a2', 0, 1))
+  await clock.advance(120_000)
+  expect(await ui.find({ type: 'Text', text: /▲ 100 ▼ 10 1:10/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeDefined()
+
+  // Pasados 10 minutos desde que terminó, el siguiente sync lo quita.
+  await clock.advance(500_000)
+  await $.turn.complete(turn('a2', 0, 1))
+  expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('un MCP que deja de dar herramientas sale en rojo con ○', async ($, on) => {
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', () => ({ value: { ...OK, exitCode: 128, stdout: '' } }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  let tools = [
+    { name: 'mcp__engram__mem_save', description: '', mcp: true },
+    { name: 'mcp__engram__mem_search', description: '', mcp: true },
+    { name: 'mcp__easel__chart', description: '', mcp: true },
+  ]
+  on('tool.list', () => ({ value: tools }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /MCP · 2$/ })).toBeDefined()
+  await ui.unmount()
+
+  // engram se cae: queda recordado, en rojo y sin contarse como activo.
+  tools = [{ name: 'mcp__easel__chart', description: '', mcp: true }]
+  await $.session.measure({ ...measure, changed: ['context'] })
+
+  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await again.find({ type: 'Text', text: /MCP · 1 de 2/ })).toBeDefined()
+  const down = await again.find({ type: 'Text', text: /engram/ })
+  expect(down?.props?.color).toBe('error')
+  expect(await again.find({ type: 'Text', text: /○ / })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /^sin herramientas$/ })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /● / })).toBeDefined()
+  await again.unmount()
+})

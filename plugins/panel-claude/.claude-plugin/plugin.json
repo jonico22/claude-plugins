@@ -1,7 +1,7 @@
 {
   "name": "panel-claude",
-  "version": "0.4.0",
-  "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
+  "version": "0.5.0",
+  "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes y tareas",
   "author": {
     "name": "Jose Luis Yana"
   },
@@ -11,50 +11,85 @@
       "type": "string",
       "title": "Duración del caché",
       "description": "Cuánto dura el caché del prompt; el panel cuenta hacia atrás desde la última respuesta. \"auto\" lo lee de promptCacheTtl en tu configuración de Claude Code.",
-      "options": ["auto", "5m", "1h"],
+      "options": [
+        "auto",
+        "5m",
+        "1h"
+      ],
       "default": "auto"
     },
     "cacheAlert": {
       "type": "string",
       "title": "Aviso de caché",
       "description": "Muestra un aviso cuando al caché le queda 1 minuto (si dura 5m) o 5 minutos (si dura 1h), una vez por respuesta.",
-      "options": ["on", "off"],
+      "options": [
+        "on",
+        "off"
+      ],
       "default": "on"
     },
     "color": {
       "type": "string",
       "title": "Color del panel",
       "description": "El color del marco y de los títulos del panel.",
-      "options": ["celeste", "morado", "naranja", "verde", "azul"],
+      "options": [
+        "celeste",
+        "morado",
+        "naranja",
+        "verde",
+        "azul"
+      ],
       "default": "celeste"
     },
     "terminal": {
       "type": "string",
       "title": "Terminal para lazygit",
       "description": "En qué terminal abre lazygit el botón de la pestaña GIT. \"auto\" usa $TERMINAL o la primera instalada; dentro de tmux siempre se abre en un popup.",
-      "options": ["auto", "ghostty", "kitty", "wezterm", "alacritty", "foot", "gnome-terminal", "konsole", "xterm", "x-terminal-emulator"],
+      "options": [
+        "auto",
+        "ghostty",
+        "kitty",
+        "wezterm",
+        "alacritty",
+        "foot",
+        "gnome-terminal",
+        "konsole",
+        "xterm",
+        "x-terminal-emulator"
+      ],
       "default": "auto"
     },
     "showLimits": {
       "type": "string",
       "title": "Mostrar Límites",
       "description": "Muestra la sección Límites en la pestaña MAIN.",
-      "options": ["on", "off"],
+      "options": [
+        "on",
+        "off"
+      ],
       "default": "on"
     },
     "showMcp": {
       "type": "string",
       "title": "Mostrar MCP",
       "description": "Muestra la sección MCP en la pestaña MAIN.",
-      "options": ["on", "off"],
+      "options": [
+        "on",
+        "off"
+      ],
       "default": "on"
     },
     "showChanges": {
       "type": "string",
       "title": "Mostrar Cambios",
       "description": "Muestra la sección Cambios en la pestaña MAIN. La pestaña GIT siempre muestra Cambios.",
-      "options": ["on", "off"],
+      "options": [
+        "on",
+        "off"
+      ],
       "default": "on"
     }
-  }
+  },
+  "license": "MIT",
+  "icon": "./.claude-plugin/icon.png"
 }
