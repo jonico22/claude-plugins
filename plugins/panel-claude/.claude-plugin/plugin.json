@@ -1,0 +1,25 @@
+{
+  "name": "panel-claude",
+  "version": "0.1.0",
+  "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
+  "author": {
+    "name": "Jose Luis Yana"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cache": {
+      "type": "string",
+      "title": "Duración del caché",
+      "description": "Cuánto dura el caché del prompt en tu cuenta; el panel cuenta hacia atrás desde la última respuesta.",
+      "options": ["5m", "1h"],
+      "default": "5m"
+    },
+    "color": {
+      "type": "string",
+      "title": "Color del panel",
+      "description": "El color del marco y de los títulos del panel.",
+      "options": ["celeste", "morado", "naranja", "verde", "azul"],
+      "default": "celeste"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# Nunca subir credenciales ni estado local
+.credentials.json
+*.local.json
+.env
+*.log
+.DS_Store
+
+# Tipos que Claude Code escribe al cargar el plugin
+plugins/*/.claude-plugin/types/
+plugins/*/tsconfig.json

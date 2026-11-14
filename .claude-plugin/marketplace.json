@@ -1,0 +1,14 @@
+{
+  "name": "jonico22-plugins",
+  "owner": {
+    "name": "Jose Luis Yana"
+  },
+  "plugins": [
+    {
+      "name": "panel-claude",
+      "source": "./plugins/panel-claude",
+      "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
+      "version": "0.1.0"
+    }
+  ]
+}
