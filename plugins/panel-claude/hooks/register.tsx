@@ -46,7 +46,7 @@ const cache = atom({ plugin: 'panel-claude', key: 'cache' } as const, { at: null
 const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
-  shape: 'git-1',
+  shape: 'git-2',
 })
 // Los servidores MCP que aportan herramientas a la sesión.
 const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
@@ -61,6 +61,23 @@ const ACCENTS: Record<string, string> = {
   naranja: 'claude',
   verde: '#4ade80',
   azul: '#60a5fa',
+}
+// Los emuladores de terminal donde se puede abrir lazygit, en orden de
+// preferencia, y cómo recibe cada uno el comando (casi todos con `-e`).
+const TERMINALS = [
+  'ghostty',
+  'kitty',
+  'wezterm',
+  'alacritty',
+  'foot',
+  'gnome-terminal',
+  'konsole',
+  'xterm',
+  'x-terminal-emulator',
+]
+const TERMINAL_ARGS: Record<string, string[]> = {
+  wezterm: ['start', '--'],
+  'gnome-terminal': ['--'],
 }
 const MAX_FILES = 12
 // En MAIN la lista de cambios es más corta: comparte el panel con todo lo demás.
@@ -179,16 +196,29 @@ const readBranch = async ($: EngineInterface, cwd: string) => {
 /** Los archivos con cambios y los últimos commits; null fuera de un repo. */
 const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null> => {
   try {
-    const status = await $.process.run(['git', 'status', '--porcelain'], {
+    const status = await $.process.run(['git', 'status', '--porcelain', '-b'], {
       cwd,
       timeoutMs: 5000,
     })
     if (status.exitCode !== 0) return null
 
-    const files = status.stdout
-      .split('\n')
-      .filter(line => line.length > 3)
-      .map(line => ({ code: line.slice(0, 2).trim(), path: line.slice(3) }))
+    const lines = status.stdout.split('\n')
+    // La cabecera: "## main...origin/main [ahead 1, behind 2]".
+    const head = lines.find(line => line.startsWith('## ')) ?? ''
+    const entries = lines.filter(line => line.length > 3 && !line.startsWith('## '))
+    // Código XY de git: X es el índice (staged) e Y la carpeta de trabajo.
+    const staged = entries.filter(line => line[0] !== ' ' && line[0] !== '?').length
+    const unstaged = entries.filter(line => line[1] !== ' ').length
+    const files = entries.map(line => ({
+      code: line.slice(0, 2).trim(),
+      path: line.slice(3),
+    }))
+    // Sin stash guardado el comando falla: cuenta como cero.
+    const stash = await $.process.run(
+      ['git', 'rev-list', '--walk-reflogs', '--count', 'refs/stash'],
+      { cwd, timeoutMs: 3000 },
+    )
+    const stashes = stash.exitCode === 0 ? Number.parseInt(stash.stdout, 10) || 0 : 0
     // Un repo recién creado no tiene commits: git log falla y la lista queda vacía.
     const log = await $.process.run(
       ['git', 'log', `-${MAX_COMMITS}`, '--pretty=format:%h%x09%s'],
@@ -206,7 +236,22 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
               return { hash, subject: rest.join(' ') }
             })
 
-    return { files: files.slice(0, 200), commits }
+    return {
+      files: files.slice(0, 200),
+      total: files.length,
+      staged,
+      unstaged,
+      stashes,
+      commits,
+      ...(head.includes('...')
+        ? {
+            upstream: {
+              ahead: Number(/ahead (\d+)/.exec(head)?.[1] ?? 0),
+              behind: Number(/behind (\d+)/.exec(head)?.[1] ?? 0),
+            },
+          }
+        : {}),
+    }
   } catch {
     return null
   }
@@ -309,13 +354,87 @@ const touchCache = async ($: EngineInterface) => {
   await update($, clock, () => at)
 }
 
+// Mientras lazygit está abierto, el panel relee el repo en cada tic del reloj.
+let isLazygitOpen = false
+
+/**
+ * Abre lazygit sobre la carpeta de la sesión: en un popup de tmux si la
+ * sesión corre dentro de tmux, y si no en una ventana de terminal nueva
+ * (lazygit necesita una terminal propia; no se puede dibujar en el panel).
+ */
+const openLazygit = async ($: EngineInterface, chosenTerminal?: string) => {
+  if (isLazygitOpen) {
+    $.ui.toast('lazygit ya está abierto.')
+
+    return
+  }
+
+  const has = async (name: string) =>
+    $.process
+      .run(['sh', '-c', 'command -v "$1" >/dev/null', 'sh', name], { timeoutMs: 3000 })
+      .then(found => found.exitCode === 0)
+      .catch(() => false)
+
+  if (!(await has('lazygit'))) {
+    $.ui.toast('lazygit no está instalado.')
+
+    return
+  }
+
+  const cwd = await $.session.cwd()
+  let argv: string[]
+  let where: string
+  const tmux = await $.env.get('TMUX')
+  if (tmux !== undefined && tmux !== '') {
+    argv = ['tmux', 'display-popup', '-E', '-w', '90%', '-h', '90%', '-d', cwd, 'lazygit']
+    where = 'tmux'
+  } else {
+    let terminal = chosenTerminal ?? (await $.env.get('TERMINAL'))
+    if (terminal === undefined || terminal === '') {
+      terminal = undefined
+      for (const name of TERMINALS) {
+        if (await has(name)) {
+          terminal = name
+          break
+        }
+      }
+    }
+    if (terminal === undefined) {
+      $.ui.toast('No encontré una terminal para abrir lazygit; elige una en /config.')
+
+      return
+    }
+    where = terminal.split('/').at(-1) ?? terminal
+    argv = [terminal, ...(TERMINAL_ARGS[where] ?? ['-e']), 'lazygit', '-p', cwd]
+  }
+
+  isLazygitOpen = true
+  $.ui.toast(`lazygit abierto en ${where}.`)
+  // El bucle es la vida del proceso: sigue hasta que se cierra lazygit.
+  void (async () => {
+    try {
+      for await (const piece of $.process.spawn({ argv, cwd })) void piece
+    } catch {
+      $.ui.toast(`No se pudo abrir lazygit en ${where}.`)
+    } finally {
+      isLazygitOpen = false
+      // Lo que se hizo en lazygit (commits, stage) se ve al cerrarlo.
+      await refresh($).catch(() => undefined)
+    }
+  })()
+}
+
 export const register: Register = (on, options) => {
   // Cuánto dura el caché del prompt. En /config: "auto" (por defecto) lo lee
   // de promptCacheTtl en la configuración de Claude Code; "5m" o "1h" lo fijan.
   const chosenCacheMs = ttlMs(options['cache'])
   const accent = ACCENTS[String(options['color'])] ?? '#4aa8ff'
+  // En /config: en qué terminal abrir lazygit; "auto" busca uno instalado.
+  const chosenTerminal =
+    typeof options['terminal'] === 'string' && options['terminal'] !== 'auto'
+      ? options['terminal']
+      : undefined
   let ticking: { cancel: () => void } | undefined
-
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'panel',
@@ -330,6 +449,7 @@ export const register: Register = (on, options) => {
       ticking?.cancel()
       ticking = $.clock.every(TICK_MS, () => {
         void $.clock.now().then(at => update($, clock, () => at))
+        if (isLazygitOpen) void refresh($).catch(() => undefined)
       })
       void $.ui.open({ id: PANE, title: TITLE, columns: START_COLUMNS })
     }
@@ -615,7 +735,7 @@ export const register: Register = (on, options) => {
     // La lista de archivos con cambios, igual en MAIN y en GIT; solo cambia el tope.
     const changes = (max: number) => (
       <Box flexDirection="column">
-        {title(`Cambios · ${files.length}`)}
+        {title(`Cambios · ${repo?.total ?? files.length}`)}
         {files.length === 0 && <Text dimColor>Sin cambios pendientes.</Text>}
         {files.slice(0, max).map(file => (
           <Text wrap="truncate-start">
@@ -623,11 +743,14 @@ export const register: Register = (on, options) => {
             {fitPath(file.path, inner - 3)}
           </Text>
         ))}
-        {files.length > max && <Text dimColor>… y {files.length - max} más</Text>}
+        {(repo?.total ?? files.length) > max && (
+          <Text dimColor>… y {(repo?.total ?? files.length) - max} más</Text>
+        )}
       </Box>
     )
 
     if (shown === 'git') {
+      const upstream = repo?.upstream
 
       return (
         <Box
@@ -638,12 +761,36 @@ export const register: Register = (on, options) => {
           paddingX={1}
         >
           {tabs}
-          {title('Repositorio')}
+          {title(
+            'Repositorio',
+            repo === null ? undefined : (
+              <Button
+                key="lazygit"
+                label="lazygit"
+                hotkey="g"
+                onPress={() => openLazygit($, chosenTerminal)}
+              />
+            ),
+          )}
           {repo === null ? (
             <Text dimColor>Esta carpeta no es un repositorio git.</Text>
           ) : (
             row('Rama', now.branch ?? '—', 'success')
           )}
+          {repo !== null &&
+            (upstream === undefined
+              ? row('Remoto', 'sin upstream', 'inactive')
+              : row(
+                  'Remoto',
+                  upstream.ahead === 0 && upstream.behind === 0
+                    ? 'al día'
+                    : `↑${upstream.ahead} ↓${upstream.behind}`,
+                  upstream.ahead === 0 && upstream.behind === 0 ? 'success' : 'warning',
+                ))}
+          {repo !== null &&
+            repo.total > 0 &&
+            row('Stage', `${repo.staged} listos · ${repo.unstaged} sin stage`)}
+          {repo !== null && repo.stashes > 0 && row('Stash', String(repo.stashes))}
 
           {repo !== null && changes(MAX_FILES)}
 
@@ -707,16 +854,18 @@ export const register: Register = (on, options) => {
             {cost}
           </Text>
         </Box>
-        <Box flexDirection="row" justifyContent="space-between" gap={1}>
-          <Text dimColor>Caché</Text>
-          {cacheLeft === null ? (
+
+        {title(
+          'Caché',
+          // Sección propia: lo que le queda va a la derecha del título.
+          cacheLeft === null ? (
             <Text dimColor>—</Text>
           ) : cacheLeft <= 0 ? (
             <Text color="inactive">frío</Text>
           ) : (
             <Text color={cacheColor(cacheSpent ?? 0)}>~{countdown(cacheLeft)}</Text>
-          )}
-        </Box>
+          ),
+        )}
         {cacheSpent !== null &&
           bar(barCells(cacheSpent, inner), cacheColor(cacheSpent))}
 

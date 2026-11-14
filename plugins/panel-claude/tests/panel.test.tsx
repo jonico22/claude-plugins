@@ -474,3 +474,65 @@ test('MAIN lista los servidores MCP y los archivos con cambios', async ($, on) =
   await has(/\?\? notas\.md/)
   await ui.unmount()
 })
+
+test('GIT muestra remoto, stage y stash, y el botón abre lazygit', async ($, on) => {
+  const spawned: string[][] = []
+  const toasts: string[] = []
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  on('process.run', (_, e) => {
+    const stdout = e.argv.includes('status')
+      ? '## main...origin/main [ahead 2, behind 1]\nM  listo.ts\n M hooks/register.tsx\n?? notas.md\n'
+      : e.argv.includes('log')
+        ? 'a1b2c3d\tPrimer commit\n'
+        : e.argv.includes('rev-list')
+          ? '3\n'
+          : 'main\n'
+    // De las terminales, solo kitty está instalada.
+    const isMissing = e.argv[0] === 'sh' && !['lazygit', 'kitty'].includes(e.argv.at(-1) ?? '')
+
+    return {
+      value: {
+        exitCode: isMissing ? 1 : 0,
+        stdout,
+        stderr: '',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+  on('process.spawn', async function* (_, e) {
+    spawned.push([...e.argv])
+
+    return { value: { code: 0, signal: null } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  await ui.press({ key: 'tab-git' })
+  await has(/Cambios · 3/)
+  await has(/↑2 ↓1/)
+  await has(/1 listos · 2 sin stage/)
+  await has(/^3$/)
+  await ui.press({ key: 'lazygit' })
+  expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo']])
+  expect(toasts).toContain('lazygit abierto en kitty.')
+  await ui.unmount()
+})

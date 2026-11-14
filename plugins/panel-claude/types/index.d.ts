@@ -31,6 +31,16 @@ export type PanelCache = { at: number | null }
 export type PanelGit = {
   /** Archivos con cambios: el código de dos letras de git y la ruta. */
   files: { code: string; path: string }[]
+  /** Cuántos archivos tienen cambios en total (`files` guarda hasta 200). */
+  total: number
+  /** Cuántos tienen cambios en el índice, listos para el commit. */
+  staged: number
+  /** Cuántos tienen cambios sin pasar al índice (incluye los sin seguimiento). */
+  unstaged: number
+  /** Cuántos stash hay guardados. */
+  stashes: number
+  /** Commits por subir y por bajar; ausente si la rama no sigue a un remoto. */
+  upstream?: { ahead: number; behind: number }
   /** Los commits más recientes, el último primero. */
   commits: { hash: string; subject: string }[]
 }

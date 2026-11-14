@@ -1,6 +1,6 @@
 {
   "name": "panel-claude",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
   "author": {
     "name": "Jose Luis Yana"
@@ -20,6 +20,13 @@
       "description": "El color del marco y de los títulos del panel.",
       "options": ["celeste", "morado", "naranja", "verde", "azul"],
       "default": "celeste"
+    },
+    "terminal": {
+      "type": "string",
+      "title": "Terminal para lazygit",
+      "description": "En qué terminal abre lazygit el botón de la pestaña GIT. \"auto\" usa $TERMINAL o la primera instalada; dentro de tmux siempre se abre en un popup.",
+      "options": ["auto", "ghostty", "kitty", "wezterm", "alacritty", "foot", "gnome-terminal", "konsole", "xterm", "x-terminal-emulator"],
+      "default": "auto"
     }
   }
 }

@@ -8,7 +8,7 @@
       "name": "panel-claude",
       "source": "./plugins/panel-claude",
       "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
-      "version": "0.3.1"
+      "version": "0.4.0"
     }
   ]
 }
