@@ -107,7 +107,7 @@ declare module 'claude-code' {
       git: Shaped<PanelGit | null>
       /** Vacío si ningún servidor MCP aporta herramientas. */
       mcp: Shaped<PanelMcp[]>
-      tab: 'main' | 'git'
+      tab: 'main' | 'git' | 'tasks'
       cache: Shaped<PanelCache>
       cacheStats: Shaped<PanelCacheStats>
       session: Shaped<PanelSession>

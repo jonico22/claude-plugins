@@ -125,12 +125,37 @@ test('muestra las tareas y los subagentes con sus tokens', async ($, on) => {
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
+  // En MAIN solo hay un resumen de una línea por sección.
+  await has(/Todos · 0 de 1/)
+  await has(/Escribir pruebas/)
+  await has(/Subagentes · 1 activo de 1/)
+  expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Buscar rutas/ })).toBeUndefined()
+
+  // La pestaña TAREAS los muestra completos.
+  await ui.press({ key: 'tab-tasks' })
   await has(/Todos · 0 de 1/)
   await has(/▸ Escribir pruebas/)
   await has(/Subagentes · 1/)
   await has(/Explore/)
   await has(/▲ 5k ▼ 250/)
   await has(/Buscar rutas/)
+  expect(await ui.find({ type: 'Text', text: /Contexto/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('sin subagentes ni todos, MAIN no muestra su resumen', async ($, on) => {
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', () => ({ value: { ...OK, exitCode: 128, stdout: '' } }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Subagentes|Todos/ })).toBeUndefined()
+  await ui.press({ key: 'tab-tasks' })
+  expect(await ui.find({ type: 'Text', text: /Sin subagentes/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Sin tareas/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -841,3 +866,54 @@ test('el costo de Contexto lleva lo que subió el último turno', async ($, on) 
   expect(await ui.find({ type: 'Text', text: /^ \(\+\$0\.021\)$/ })).toBeDefined()
   await ui.unmount()
 })
+
+/** Un motor falso con límites, un servidor MCP y un archivo con cambios. */
+const sectionsEngine = (on: On) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  mock.clock(on, { now: 1_000_000 })
+  on('session.usage', () => ({
+    value: {
+      startedAt: 0,
+      context: { window: 200_000 },
+      rateLimits: [{ kind: 'five_hour', percentUsed: 20 }],
+    },
+  }))
+  on('tool.list', () => ({
+    value: [{ name: 'mcp__engram__mem_save', description: '', mcp: true }],
+  }))
+  on('process.run', (_, e) => ({
+    value: {
+      ...OK,
+      stdout: e.argv.includes('status') ? ' M a.ts\n' : e.argv.includes('log') ? '' : 'main\n',
+    },
+  }))
+}
+
+const SECTIONS = [
+  { option: 'showLimits', text: /^Límites$/ },
+  { option: 'showMcp', text: /MCP · 1/ },
+  { option: 'showChanges', text: /Cambios · 1/ },
+] as const
+
+for (const one of SECTIONS) {
+  test(`${one.option} en off apaga esa sección de MAIN`, { options: { [one.option]: 'off' } }, async ($, on) => {
+    sectionsEngine(on)
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: one.text })).toBeUndefined()
+    // Las demás secciones siguen.
+    for (const other of SECTIONS.filter(item => item.option !== one.option)) {
+      expect(await ui.find({ type: 'Text', text: other.text })).toBeDefined()
+    }
+    await ui.press({ key: 'tab-git' })
+    // La pestaña GIT siempre muestra Cambios.
+    expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+    await ui.unmount()
+  })
+}

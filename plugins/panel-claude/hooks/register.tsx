@@ -591,6 +591,10 @@ export const register: Register = (on, options) => {
     typeof options['terminal'] === 'string' && options['terminal'] !== 'auto'
       ? options['terminal']
       : undefined
+  // En /config: qué secciones de MAIN se muestran (GIT siempre muestra Cambios).
+  const isLimitsOn = options['showLimits'] !== 'off'
+  const isMcpOn = options['showMcp'] !== 'off'
+  const isChangesOn = options['showChanges'] !== 'off'
   let ticking: { cancel: () => void } | undefined
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -830,6 +834,8 @@ export const register: Register = (on, options) => {
       todoRows.length <= MAX_TODOS
         ? todoRows
         : todoRows.filter(todo => todo.status !== 'completed').slice(0, MAX_TODOS)
+    const activeAgents = agentRows.filter(agent => !ENDED.has(agent.status)).length
+    const current = todoRows.find(todo => todo.status === 'in_progress')
     const columns = Math.max(20, e.props.bodyColumns)
 
     if (now === null) {
@@ -902,7 +908,7 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // Las pestañas: con el panel enfocado, 1 y 2 cambian de vista.
+    // Las pestañas: con el panel enfocado, 1, 2 y 3 cambian de vista.
     const shown = await read($, tab)
     const tabs = (
       <Box flexDirection="row" gap={2}>
@@ -921,6 +927,14 @@ export const register: Register = (on, options) => {
           label="GIT"
           dimColor={shown !== 'git'}
           onPress={() => update($, tab, () => 'git' as const)}
+        />
+        <Button
+          key="tab-tasks"
+          plain
+          hotkey="3"
+          label="TAREAS"
+          dimColor={shown !== 'tasks'}
+          onPress={() => update($, tab, () => 'tasks' as const)}
         />
       </Box>
     )
@@ -1045,6 +1059,67 @@ export const register: Register = (on, options) => {
       )
     }
 
+    if (shown === 'tasks') {
+      return (
+        <Box
+          flexDirection="column"
+          width={columns}
+          borderStyle="round"
+          borderColor={accent}
+          paddingX={1}
+        >
+          {tabs}
+    {title(`Subagentes · ${agentRows.length}`)}
+        {agentRows.length === 0 && <Text dimColor>Sin subagentes.</Text>}
+        {agentRows.map(agent => {
+          const mark = ENDED.has(agent.status)
+            ? agent.status === 'completed'
+              ? { glyph: '✓', color: 'success' }
+              : { glyph: '✗', color: 'error' }
+            : { glyph: '●', color: 'warning' }
+
+          return (
+            <Box flexDirection="column">
+              <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                <Text wrap="truncate-end">
+                  <Text color={mark.color}>{mark.glyph} </Text>
+                  {agent.type}
+                </Text>
+                <Box flexShrink={0}>
+                  <Text dimColor>
+                    ▲ {compact(agent.tokensIn)} ▼ {compact(agent.tokensOut)}
+                  </Text>
+                </Box>
+              </Box>
+              <Text dimColor wrap="truncate-end">
+                {'  '}
+                {agent.description}
+              </Text>
+            </Box>
+          )
+        })}
+
+        {title(`Todos · ${doneTodos} de ${todoRows.length}`)}
+        {todoRows.length === 0 && <Text dimColor>Sin tareas.</Text>}
+        {shownTodos.map(todo =>
+          todo.status === 'completed' ? (
+            <Text dimColor>✓ {todo.text}</Text>
+          ) : todo.status === 'in_progress' ? (
+            <Text>
+              <Text color="warning">▸ </Text>
+              {todo.text}
+            </Text>
+          ) : (
+            <Text>
+              <Text dimColor>○ </Text>
+              {todo.text}
+            </Text>
+          ),
+        )}
+        </Box>
+      )
+    }
+
     return (
       <Box
         flexDirection="column"
@@ -1118,8 +1193,8 @@ export const register: Register = (on, options) => {
               : 'warning',
         )}
 
-        {now.limits.length > 0 && title('Límites')}
-        {now.limits.map(limit => {
+        {isLimitsOn && now.limits.length > 0 && title('Límites')}
+        {(isLimitsOn ? now.limits : []).map(limit => {
           const left = limit.resetsAt === undefined ? null : limit.resetsAt - ticked
           const used = `${Math.round(limit.percentUsed)}%`
 
@@ -1141,8 +1216,8 @@ export const register: Register = (on, options) => {
           )
         })}
 
-        {servers.length > 0 && title(`MCP · ${servers.length}`)}
-        {servers.slice(0, MAX_MCP).map(server => (
+        {isMcpOn && servers.length > 0 && title(`MCP · ${servers.length}`)}
+        {(isMcpOn ? servers : []).slice(0, MAX_MCP).map(server => (
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
             <Text wrap="truncate-end">
               <Text color="success">● </Text>
@@ -1155,56 +1230,36 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         ))}
-        {servers.length > MAX_MCP && (
+        {isMcpOn && servers.length > MAX_MCP && (
           <Text dimColor>… y {servers.length - MAX_MCP} más</Text>
         )}
 
-        {repo !== null && changes(MAX_MAIN_FILES)}
+        {isChangesOn && repo !== null && changes(MAX_MAIN_FILES)}
 
-        {agentRows.length > 0 && title(`Subagentes · ${agentRows.length}`)}
-        {agentRows.map(agent => {
-          const mark = ENDED.has(agent.status)
-            ? agent.status === 'completed'
-              ? { glyph: '✓', color: 'success' }
-              : { glyph: '✗', color: 'error' }
-            : { glyph: '●', color: 'warning' }
-
-          return (
-            <Box flexDirection="column">
-              <Box flexDirection="row" justifyContent="space-between" gap={1}>
-                <Text wrap="truncate-end">
-                  <Text color={mark.color}>{mark.glyph} </Text>
-                  {agent.type}
-                </Text>
-                <Box flexShrink={0}>
-                  <Text dimColor>
-                    ▲ {compact(agent.tokensIn)} ▼ {compact(agent.tokensOut)}
-                  </Text>
-                </Box>
-              </Box>
-              <Text dimColor wrap="truncate-end">
-                {'  '}
-                {agent.description}
+        {agentRows.length > 0 && (
+          <Box marginTop={1}>
+            <Text wrap="truncate-end">
+              <Text bold color={accent}>
+                Subagentes · {activeAgents} {activeAgents === 1 ? 'activo' : 'activos'} de{' '}
+                {agentRows.length}
               </Text>
-            </Box>
-          )
-        })}
-
-        {todoRows.length > 0 && title(`Todos · ${doneTodos} de ${todoRows.length}`)}
-        {shownTodos.map(todo =>
-          todo.status === 'completed' ? (
-            <Text dimColor>✓ {todo.text}</Text>
-          ) : todo.status === 'in_progress' ? (
-            <Text>
-              <Text color="warning">▸ </Text>
-              {todo.text}
             </Text>
-          ) : (
-            <Text>
-              <Text dimColor>○ </Text>
-              {todo.text}
+          </Box>
+        )}
+        {todoRows.length > 0 && (
+          <Box marginTop={1}>
+            <Text wrap="truncate-end">
+              <Text bold color={accent}>
+                Todos · {doneTodos} de {todoRows.length}
+              </Text>
+              {current !== undefined && (
+                <Text>
+                  <Text color="warning"> ▸ </Text>
+                  {current.text}
+                </Text>
+              )}
             </Text>
-          ),
+          </Box>
         )}
       </Box>
     )

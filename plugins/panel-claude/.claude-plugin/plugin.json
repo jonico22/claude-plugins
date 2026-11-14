@@ -34,6 +34,27 @@
       "description": "En qué terminal abre lazygit el botón de la pestaña GIT. \"auto\" usa $TERMINAL o la primera instalada; dentro de tmux siempre se abre en un popup.",
       "options": ["auto", "ghostty", "kitty", "wezterm", "alacritty", "foot", "gnome-terminal", "konsole", "xterm", "x-terminal-emulator"],
       "default": "auto"
+    },
+    "showLimits": {
+      "type": "string",
+      "title": "Mostrar Límites",
+      "description": "Muestra la sección Límites en la pestaña MAIN.",
+      "options": ["on", "off"],
+      "default": "on"
+    },
+    "showMcp": {
+      "type": "string",
+      "title": "Mostrar MCP",
+      "description": "Muestra la sección MCP en la pestaña MAIN.",
+      "options": ["on", "off"],
+      "default": "on"
+    },
+    "showChanges": {
+      "type": "string",
+      "title": "Mostrar Cambios",
+      "description": "Muestra la sección Cambios en la pestaña MAIN. La pestaña GIT siempre muestra Cambios.",
+      "options": ["on", "off"],
+      "default": "on"
     }
   }
 }
