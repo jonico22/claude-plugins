@@ -25,7 +25,21 @@ export type PanelLimit = {
 }
 
 /** Cuándo llegó la última respuesta del modelo: de ahí se estima el caché. */
-export type PanelCache = { at: number | null }
+export type PanelCache = {
+  at: number | null
+  /** Ya salió el aviso de vencimiento para esa respuesta. */
+  isAlerted: boolean
+}
+
+/** Tokens leídos del caché y entrada total de los turnos del hilo principal. */
+export type PanelCacheStats = { read: number; input: number }
+
+/** Cuándo empezó la sesión y el costo medido: total y lo que subió el último turno. */
+export type PanelSession = {
+  startedAt: number | null
+  usd: number | null
+  turnUsd: number | null
+}
 
 /** Lo que la pestaña GIT muestra del repositorio. */
 export type PanelGit = {
@@ -95,6 +109,8 @@ declare module 'claude-code' {
       mcp: Shaped<PanelMcp[]>
       tab: 'main' | 'git'
       cache: Shaped<PanelCache>
+      cacheStats: Shaped<PanelCacheStats>
+      session: Shaped<PanelSession>
       /** La hora que el reloj del panel marcó por última vez. */
       now: number
     }

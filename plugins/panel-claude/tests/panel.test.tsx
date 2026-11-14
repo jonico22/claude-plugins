@@ -1,4 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
+
+type On = Parameters<TestBody>[1]
 
 const PANE = {
   plugin: 'panel-claude',
@@ -545,7 +548,7 @@ const OK = {
 }
 
 /** Lo común de los motores falsos de git: la sesión y la interfaz. */
-const baseEngine = (on: Parameters<Parameters<typeof test>[1]>[1]) => {
+const baseEngine = (on: On) => {
   on('command.register', () => ({ value: { command: 'panel' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -688,5 +691,153 @@ test('el botón fetch hace git fetch con tope de 30 s y avisa', async ($, on) =>
   await ui.press({ key: 'fetch' })
   expect(fetches).toEqual([{ argv: ['git', 'fetch'], timeoutMs: 30_000 }])
   expect(toasts).toContain('Fetch hecho.')
+  await ui.unmount()
+})
+
+/** Un motor falso con medición de contexto, para las pruebas de caché y sesión. */
+const measuredEngine = (on: On) => {
+  baseEngine(on)
+  on('process.run', () => ({ value: { ...OK, exitCode: 128, stdout: '' } }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+}
+
+const turn = (agentId: string | undefined, read: number, input: number) =>
+  ({
+    answer: 'listo',
+    durationMs: 10,
+    isAborted: false,
+    turnId: 't',
+    reason: 'answer',
+    ...(agentId === undefined ? {} : { agentId }),
+    usage: {
+      model: 'opus',
+      input_tokens: input,
+      output_tokens: 10,
+      cache_read_input_tokens: read,
+      cache_creation_input_tokens: 0,
+    },
+  }) as const
+
+const measure = {
+  context: { tokens: 50_000, window: 200_000, percent: 25 },
+  rateLimits: [],
+  changed: ['context' as const],
+}
+
+test('un toast avisa una sola vez cuando al caché le queda 1 minuto', async ($, on) => {
+  measuredEngine(on)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  const clock = mock.clock(on, { now: 1_000_000 })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure(measure)
+  await clock.advance(200_000)
+  expect(toasts).toEqual([])
+  await clock.advance(50_000)
+  expect(toasts).toEqual(['El caché vence en 1:00.'])
+  await clock.advance(30_000)
+  expect(toasts).toHaveLength(1)
+  // Llega otra respuesta: el aviso se rearma.
+  await $.session.measure(measure)
+  await clock.advance(245_000)
+  expect(toasts).toHaveLength(2)
+})
+
+test('con un caché de 1 h el aviso sale a los 5 minutos', { options: { cache: '1h' } }, async ($, on) => {
+  measuredEngine(on)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  const clock = mock.clock(on, { now: 1_000_000 })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure(measure)
+  await clock.advance(3_000_000)
+  expect(toasts).toEqual([])
+  await clock.advance(300_000)
+  expect(toasts).toEqual(['El caché vence en 5:00.'])
+})
+
+test('con cacheAlert en off no hay toast', { options: { cacheAlert: 'off' } }, async ($, on) => {
+  measuredEngine(on)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  const clock = mock.clock(on, { now: 1_000_000 })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure(measure)
+  await clock.advance(280_000)
+  expect(toasts).toEqual([])
+})
+
+test('Caché muestra el porcentaje leído, solo del hilo principal', async ($, on) => {
+  measuredEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^—$/ }))?.text).toBe('—')
+
+  await $.turn.complete(turn(undefined, 800, 200))
+  // Un subagente no cuenta.
+  await $.turn.complete(turn('a1', 0, 5000))
+  await ui.unmount()
+
+  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const value = await again.find({ type: 'Text', text: /^80%$/ })
+  expect(value?.props?.color).toBe('success')
+  await again.unmount()
+
+  await $.turn.complete(turn(undefined, 0, 1000))
+  const third = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // 800 de 2000: 40 %.
+  expect((await third.find({ type: 'Text', text: /^40%$/ }))?.props?.color).toBe('warning')
+  await third.unmount()
+})
+
+test('Status muestra el tiempo de la sesión', async ($, on) => {
+  measuredEngine(on)
+  const clock = mock.clock(on, { now: 1_000_000 })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await clock.advance(95_000)
+  expect(await ui.find({ type: 'Text', text: /^Sesión$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^1:35$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('el costo de Contexto lleva lo que subió el último turno', async ($, on) => {
+  baseEngine(on)
+  on('process.run', () => ({ value: { ...OK, exitCode: 128, stdout: '' } }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  mock.clock(on, { now: 1_000_000 })
+  const usage = { startedAt: 0, context: { window: 200_000 }, rateLimits: [] }
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({ ...usage, cost: { usd: 1.213 }, changed: ['cost'] })
+  await $.session.measure({ ...usage, cost: { usd: 1.234 }, changed: ['cost'] })
+
+  // bodyColumns 60 deja sitio para el costo y la diferencia.
+  const ui = await $.ui.mount({
+    ...PANE,
+    props: { ...PANE.props, bodyColumns: 60 },
+    surface: 'terminal',
+  })
+  expect(await ui.find({ type: 'Text', text: /\$1\.234/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ \(\+\$0\.021\)$/ })).toBeDefined()
   await ui.unmount()
 })

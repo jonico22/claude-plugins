@@ -14,6 +14,13 @@
       "options": ["auto", "5m", "1h"],
       "default": "auto"
     },
+    "cacheAlert": {
+      "type": "string",
+      "title": "Aviso de caché",
+      "description": "Muestra un aviso cuando al caché le queda 1 minuto (si dura 5m) o 5 minutos (si dura 1h), una vez por respuesta.",
+      "options": ["on", "off"],
+      "default": "on"
+    },
     "color": {
       "type": "string",
       "title": "Color del panel",

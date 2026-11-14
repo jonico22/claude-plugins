@@ -3,10 +3,12 @@ import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
 import type {
   PanelAgent,
+  PanelCacheStats,
   PanelGit,
   PanelInfo,
   PanelLimit,
   PanelMcp,
+  PanelSession,
   PanelTodo,
   PanelTotals,
 } from '../types'
@@ -39,9 +41,24 @@ const todos = atom({ plugin: 'panel-claude', key: 'todos' } as const, [], {
 })
 
 // Cuándo llegó la última respuesta: el caché del prompt dura desde ahí.
-const cache = atom({ plugin: 'panel-claude', key: 'cache' } as const, { at: null }, {
-  shape: 'cache-1',
-})
+// `isAlerted` guarda que el aviso de vencimiento ya salió para esa respuesta.
+const cache = atom(
+  { plugin: 'panel-claude', key: 'cache' } as const,
+  { at: null, isAlerted: false },
+  { shape: 'cache-2' },
+)
+// Lo leído del caché frente a toda la entrada de los turnos del hilo principal.
+const cacheStats = atom(
+  { plugin: 'panel-claude', key: 'cacheStats' } as const,
+  { read: 0, input: 0 },
+  { shape: 'cacheStats-1' },
+)
+// Desde cuándo corre la sesión y el costo: total medido y lo que subió en el último turno.
+const session = atom(
+  { plugin: 'panel-claude', key: 'session' } as const,
+  { startedAt: null, usd: null, turnUsd: null },
+  { shape: 'session-1' },
+)
 // La hora del reloj del panel; cada cambio redibuja las cuentas regresivas.
 const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 
@@ -85,6 +102,12 @@ const MAX_MAIN_FILES = 6
 const MAX_MCP = 8
 const MAX_COMMITS = 6
 const TICK_MS = 5000
+// Cuánto antes de que venza el caché avisa el toast: 1 min si dura 5 min, 5 min si dura 1 h.
+const ALERT_SHORT_MS = 60_000
+const ALERT_LONG_MS = 300_000
+// Desde qué porcentaje leído del caché la fila pasa a verde y a naranja.
+const READ_GOOD = 70
+const READ_FAIR = 30
 // Tras una herramienta que toca archivos, git se relee como mucho una vez por
 // este tiempo.
 const REREAD_MS = 1000
@@ -362,6 +385,16 @@ const refresh = async (
   }
 
   await update($, info, () => next)
+  const { usd } = next
+  if (usd !== undefined) {
+    // El costo del último turno es lo que subió el total entre dos mediciones.
+    await update($, session, before => ({
+      ...before,
+      usd,
+      turnUsd:
+        before.usd !== null && usd > before.usd ? usd - before.usd : before.turnUsd,
+    }))
+  }
   const repo = branch === null ? null : await readGit($, cwd)
   await update($, git, () => repo)
   const servers = await readMcp($)
@@ -397,11 +430,54 @@ const syncAgents = async ($: EngineInterface) => {
   })
 }
 
+/** Toda la entrada de un turno: lo nuevo, lo leído del caché y lo escrito en él. */
+const inputTotal = (usage: {
+  input_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+}): number =>
+  usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+
 /** Anota que acaba de llegar una respuesta: el caché vuelve a empezar. */
 const touchCache = async ($: EngineInterface) => {
   const at = await $.clock.now()
-  await update($, cache, () => ({ at }))
+  await update($, cache, () => ({ at, isAlerted: false }))
   await update($, clock, () => at)
+}
+
+/** Lo que dura el caché: lo fijado en /config, si no promptCacheTtl, si no 5 min. */
+async function cacheDuration($: EngineInterface, chosen: number | undefined) {
+  return (
+    chosen ??
+    ttlMs(await $.settings.read({ key: 'promptCacheTtl' }).catch(() => undefined)) ??
+    DEFAULT_CACHE_MS
+  )
+}
+
+/**
+ * Un tic del reloj: mueve la hora del panel y, si queda poco para que venza el
+ * caché, avisa con un toast una sola vez por respuesta.
+ */
+async function tickPanel(
+  $: EngineInterface,
+  chosen: number | undefined,
+  isAlertOn: boolean,
+) {
+  const at = await $.clock.now()
+  await update($, clock, () => at)
+  if (isLazygitOpen) await refresh($).catch(() => undefined)
+  if (!isAlertOn) return
+
+  const last = await read($, cache)
+  if (last.at === null || last.isAlerted) return
+
+  const cacheMs = await cacheDuration($, chosen)
+  const left = cacheMs - (at - last.at)
+  const warnMs = cacheMs >= 3_600_000 ? ALERT_LONG_MS : ALERT_SHORT_MS
+  if (left <= 0 || left > warnMs) return
+
+  await update($, cache, before => ({ ...before, isAlerted: true }))
+  $.ui.toast(`El caché vence en ${countdown(left)}.`)
 }
 
 // Cuándo se releyó git por última vez tras una herramienta.
@@ -507,6 +583,8 @@ export const register: Register = (on, options) => {
   // Cuánto dura el caché del prompt. En /config: "auto" (por defecto) lo lee
   // de promptCacheTtl en la configuración de Claude Code; "5m" o "1h" lo fijan.
   const chosenCacheMs = ttlMs(options['cache'])
+  // En /config: avisa con un toast cuando al caché le queda poco.
+  const isAlertOn = options['cacheAlert'] !== 'off'
   const accent = ACCENTS[String(options['color'])] ?? '#4aa8ff'
   // En /config: en qué terminal abrir lazygit; "auto" busca uno instalado.
   const chosenTerminal =
@@ -528,9 +606,10 @@ export const register: Register = (on, options) => {
       // El reloj del panel: mueve las cuentas regresivas del caché y los límites.
       ticking?.cancel()
       ticking = $.clock.every(TICK_MS, () => {
-        void $.clock.now().then(at => update($, clock, () => at))
-        if (isLazygitOpen) void refresh($).catch(() => undefined)
+        void tickPanel($, chosenCacheMs, isAlertOn).catch(() => undefined)
       })
+      const startedAt = await $.clock.now()
+      await update($, session, () => ({ startedAt, usd: null, turnUsd: null }))
       void $.ui.open({ id: PANE, title: TITLE, columns: START_COLUMNS })
     }
 
@@ -578,10 +657,7 @@ export const register: Register = (on, options) => {
 
     if (usage !== undefined) {
       const add: PanelTotals = {
-        tokensIn:
-          usage.input_tokens +
-          usage.cache_read_input_tokens +
-          usage.cache_creation_input_tokens,
+        tokensIn: inputTotal(usage),
         tokensOut: usage.output_tokens,
       }
       await update($, totals, sum => ({
@@ -591,6 +667,12 @@ export const register: Register = (on, options) => {
     }
 
     if (e.agentId === undefined) {
+      if (usage !== undefined) {
+        await update($, cacheStats, before => ({
+          read: before.read + usage.cache_read_input_tokens,
+          input: before.input + inputTotal(usage),
+        }))
+      }
       // La rama o la carpeta pueden haber cambiado durante el turno.
       await refresh($)
     } else {
@@ -715,10 +797,9 @@ export const register: Register = (on, options) => {
     const now = await read($, info)
     const ticked = await read($, clock)
     const cachedAt = (await read($, cache)).at
-    const cacheMs =
-      chosenCacheMs ??
-      ttlMs(await $.settings.read({ key: 'promptCacheTtl' }).catch(() => undefined)) ??
-      DEFAULT_CACHE_MS
+    const cacheMs = await cacheDuration($, chosenCacheMs)
+    const stats = await read($, cacheStats)
+    const spent = await read($, session)
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)
@@ -778,6 +859,20 @@ export const register: Register = (on, options) => {
     const hasRoomForCost =
       `▲ ${tokensIn} in  ▼ ${tokensOut} out`.length + 1 + `Costo ${cost}`.length <=
       inner
+    // El costo del último turno va junto al total solo si cabe en la fila.
+    const turnCost =
+      now.usd !== undefined && spent.turnUsd !== null && spent.turnUsd > 0
+        ? ` (+$${spent.turnUsd.toFixed(3)})`
+        : ''
+    const leftWidth = hasRoomForCost
+      ? `▲ ${tokensIn} in  ▼ ${tokensOut} out`.length
+      : `▲ ${tokensIn} ▼ ${tokensOut}`.length
+    const hasRoomForTurn =
+      leftWidth + 1 + (hasRoomForCost ? 'Costo '.length : 0) + cost.length + turnCost.length <=
+      inner
+    // Lo leído del caché frente a toda la entrada; null mientras no hay datos.
+    const readPercent =
+      stats.input > 0 ? Math.round((stats.read / stats.input) * 100) : null
 
     // Un solo marco. Cada sección empieza con una línea en blanco y su título,
     // sin raya: las únicas líneas horizontales del panel son las barras de
@@ -963,6 +1058,8 @@ export const register: Register = (on, options) => {
         {row('Carpeta', fitPath(now.cwd, inner - 'Carpeta'.length - 1))}
         {row('Rama', now.branch ?? 'sin git', now.branch === null ? 'inactive' : 'success')}
         {row('Modelo', now.model)}
+        {spent.startedAt !== null &&
+          row('Sesión', countdown(Math.max(ticked, spent.startedAt) - spent.startedAt))}
 
         {title(
           'Contexto',
@@ -994,6 +1091,7 @@ export const register: Register = (on, options) => {
           <Text>
             {hasRoomForCost && <Text dimColor>Costo </Text>}
             {cost}
+            {hasRoomForTurn && turnCost !== '' && <Text dimColor>{turnCost}</Text>}
           </Text>
         </Box>
 
@@ -1010,6 +1108,15 @@ export const register: Register = (on, options) => {
         )}
         {cacheSpent !== null &&
           bar(barCells(cacheSpent, inner), cacheColor(cacheSpent))}
+        {row(
+          'Leído del caché',
+          readPercent === null ? '—' : `${readPercent}%`,
+          readPercent === null || readPercent < READ_FAIR
+            ? undefined
+            : readPercent >= READ_GOOD
+              ? 'success'
+              : 'warning',
+        )}
 
         {now.limits.length > 0 && title('Límites')}
         {now.limits.map(limit => {
