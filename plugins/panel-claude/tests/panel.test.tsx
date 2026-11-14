@@ -227,6 +227,42 @@ test('muestra el caché, los límites y el botón Compact', async ($, on) => {
   await ui.unmount()
 })
 
+test('el caché dura lo que dice promptCacheTtl en la configuración', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  mock.clock(on, { now: 1_000_000 })
+  on('settings.read', () => ({ value: { promptCacheTtl: '1h' } as never }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('process.run', () => ({
+    value: {
+      exitCode: 128,
+      stdout: '',
+      stderr: '',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({
+    context: { tokens: 50_000, window: 200_000, percent: 25 },
+    rateLimits: [],
+    changed: ['context'],
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const seen = await ui.find({ type: 'Text', text: /~\d/ })
+  expect(seen?.text).toBe('Caché ~1h 00m')
+  await ui.unmount()
+})
+
 test('la pestaña GIT muestra cambios y commits', async ($, on) => {
   on('command.register', () => ({ value: { command: 'panel' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))

@@ -8,3 +8,6 @@
 # Tipos que Claude Code escribe al cargar el plugin
 plugins/*/.claude-plugin/types/
 plugins/*/tsconfig.json
+
+# Configuración local de Claude Code en este repo
+.claude/

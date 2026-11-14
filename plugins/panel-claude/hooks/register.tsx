@@ -74,6 +74,13 @@ const compact = (n: number): string => {
 }
 
 /** 275000 ms -> "4:35"; desde una hora, "1h 05m"; desde un día, "2d 3h". */
+/** Lo que dura el caché del prompt si nada dice otra cosa. */
+const DEFAULT_CACHE_MS = 300_000
+
+/** "5m" o "1h" en milisegundos; cualquier otro valor no dice nada. */
+const ttlMs = (value: unknown): number | undefined =>
+  value === '1h' ? 3_600_000 : value === '5m' ? DEFAULT_CACHE_MS : undefined
+
 const countdown = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000))
   const minutes = Math.floor(seconds / 60)
@@ -240,8 +247,9 @@ const touchCache = async ($: EngineInterface) => {
 }
 
 export const register: Register = (on, options) => {
-  // Cuánto dura el caché del prompt; se elige en /config (5m o 1h).
-  const cacheMs = options['cache'] === '1h' ? 3_600_000 : 300_000
+  // Cuánto dura el caché del prompt. En /config: "auto" (por defecto) lo lee
+  // de promptCacheTtl en la configuración de Claude Code; "5m" o "1h" lo fijan.
+  const chosenCacheMs = ttlMs(options['cache'])
   const accent = ACCENTS[String(options['color'])] ?? '#4aa8ff'
   let ticking: { cancel: () => void } | undefined
 
@@ -418,6 +426,10 @@ export const register: Register = (on, options) => {
     const now = await read($, info)
     const ticked = await read($, clock)
     const cachedAt = (await read($, cache)).at
+    const cacheMs =
+      chosenCacheMs ??
+      ttlMs(await $.settings.read({ key: 'promptCacheTtl' }).catch(() => undefined)) ??
+      DEFAULT_CACHE_MS
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)

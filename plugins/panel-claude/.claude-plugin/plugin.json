@@ -1,6 +1,6 @@
 {
   "name": "panel-claude",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Panel para Claude Code: carpeta, rama de git, contexto usado, consumo y subagentes",
   "author": {
     "name": "Jose Luis Yana"
@@ -10,9 +10,9 @@
     "cache": {
       "type": "string",
       "title": "Duración del caché",
-      "description": "Cuánto dura el caché del prompt en tu cuenta; el panel cuenta hacia atrás desde la última respuesta.",
-      "options": ["5m", "1h"],
-      "default": "5m"
+      "description": "Cuánto dura el caché del prompt; el panel cuenta hacia atrás desde la última respuesta. \"auto\" lo lee de promptCacheTtl en tu configuración de Claude Code.",
+      "options": ["auto", "5m", "1h"],
+      "default": "auto"
     },
     "color": {
       "type": "string",
