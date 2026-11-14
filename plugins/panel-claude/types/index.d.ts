@@ -30,7 +30,13 @@ export type PanelCache = { at: number | null }
 /** Lo que la pestaña GIT muestra del repositorio. */
 export type PanelGit = {
   /** Archivos con cambios: el código de dos letras de git y la ruta. */
-  files: { code: string; path: string }[]
+  files: {
+    code: string
+    path: string
+    /** Líneas añadidas y quitadas (`git diff --numstat`); ausentes en los sin seguimiento y binarios. */
+    added?: number
+    removed?: number
+  }[]
   /** Cuántos archivos tienen cambios en total (`files` guarda hasta 200). */
   total: number
   /** Cuántos tienen cambios en el índice, listos para el commit. */
@@ -42,7 +48,14 @@ export type PanelGit = {
   /** Commits por subir y por bajar; ausente si la rama no sigue a un remoto. */
   upstream?: { ahead: number; behind: number }
   /** Los commits más recientes, el último primero. */
-  commits: { hash: string; subject: string }[]
+  commits: {
+    hash: string
+    subject: string
+    /** Cuándo se hizo, en segundos (`%ct`). */
+    at?: number
+    /** Falta por subir al remoto. */
+    isUnpushed?: boolean
+  }[]
 }
 
 /** Un servidor MCP habilitado y cuántas herramientas aporta. */

@@ -278,7 +278,7 @@ test('la pestaña GIT muestra cambios y commits', async ($, on) => {
     const stdout = e.argv.includes('status')
       ? ' M hooks/register.tsx\n?? notas.md\n'
       : e.argv.includes('log')
-        ? 'a1b2c3d\tPrimer commit\n'
+        ? 'a1b2c3d\t1000\tPrimer commit\n'
         : 'main\n'
 
     return {
@@ -442,7 +442,7 @@ test('MAIN lista los servidores MCP y los archivos con cambios', async ($, on) =
     const stdout = e.argv.includes('status')
       ? ' M hooks/register.tsx\n?? notas.md\n'
       : e.argv.includes('log')
-        ? 'a1b2c3d\tPrimer commit\n'
+        ? 'a1b2c3d\t1000\tPrimer commit\n'
         : 'main\n'
 
     return {
@@ -497,7 +497,7 @@ test('GIT muestra remoto, stage y stash, y el botón abre lazygit', async ($, on
     const stdout = e.argv.includes('status')
       ? '## main...origin/main [ahead 2, behind 1]\nM  listo.ts\n M hooks/register.tsx\n?? notas.md\n'
       : e.argv.includes('log')
-        ? 'a1b2c3d\tPrimer commit\n'
+        ? 'a1b2c3d\t1000\tPrimer commit\n'
         : e.argv.includes('rev-list')
           ? '3\n'
           : 'main\n'
@@ -534,5 +534,159 @@ test('GIT muestra remoto, stage y stash, y el botón abre lazygit', async ($, on
   await ui.press({ key: 'lazygit' })
   expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo']])
   expect(toasts).toContain('lazygit abierto en kitty.')
+  await ui.unmount()
+})
+
+const OK = {
+  exitCode: 0,
+  stderr: '',
+  isStdoutTruncated: false,
+  isStderrTruncated: false,
+}
+
+/** Lo común de los motores falsos de git: la sesión y la interfaz. */
+const baseEngine = (on: Parameters<Parameters<typeof test>[1]>[1]) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+}
+
+test('Cambios muestra las líneas por archivo y los totales', async ($, on) => {
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', (_, e) => {
+    const stdout = e.argv.includes('status')
+      ? ' M hooks/register.tsx\n M imagen.png\n?? notas.md\n'
+      : e.argv.includes('--numstat')
+        ? '12\t3\thooks/register.tsx\n-\t-\timagen.png\n'
+        : e.argv.includes('log')
+          ? ''
+          : 'main\n'
+
+    return { value: { ...OK, stdout } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  await has(/Cambios · 3  \+12 −3/)
+  await has(/^\+12$/)
+  await has(/^−3$/)
+  // El archivo sin seguimiento y el binario salen sin números.
+  expect(await ui.find({ type: 'Text', text: /^\+0$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('sin commits el numstat falla y Cambios sale sin números', async ($, on) => {
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', (_, e) => {
+    if (e.argv.includes('--numstat')) {
+      return { value: { ...OK, exitCode: 128, stdout: '' } }
+    }
+
+    return {
+      value: {
+        ...OK,
+        stdout: e.argv.includes('status') ? '?? nuevo.ts\n' : e.argv.includes('log') ? '' : 'main\n',
+      },
+    }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /Cambios/ }))?.text).toBe('Cambios · 1')
+  await ui.unmount()
+})
+
+test('git se relee tras un Edit, con freno de un segundo', async ($, on) => {
+  baseEngine(on)
+  const clock = mock.clock(on, { now: 1_000_000 })
+  let statuses = 0
+  on('tool.call', () => ({ result: {} }))
+  on('process.run', (_, e) => {
+    if (e.argv.includes('status')) statuses += 1
+
+    return { value: { ...OK, stdout: e.argv.includes('status') ? ' M a.ts\n' : 'main\n' } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const before = statuses
+
+  await $.tool.call({ tool: 'Edit', file_path: '/tmp/demo/a.ts', old_string: 'a', new_string: 'b' })
+  expect(statuses).toBe(before + 1)
+  // Dentro del mismo segundo no hay otra relectura.
+  await $.tool.call({ tool: 'Edit', file_path: '/tmp/demo/a.ts', old_string: 'b', new_string: 'c' })
+  expect(statuses).toBe(before + 1)
+  await clock.advance(1500)
+  await $.tool.call({ tool: 'Bash', command: 'git add .' })
+  expect(statuses).toBe(before + 2)
+})
+
+test('los commits llevan la hora relativa y ↑ si faltan por subir', async ($, on) => {
+  baseEngine(on)
+  // Ahora son 2 h y 1 min después del commit más nuevo.
+  mock.clock(on, { now: 1_000_000 + 2 * 3_600_000 + 60_000 })
+  on('process.run', (_, e) => {
+    const stdout = e.argv.includes('status')
+      ? '## main...origin/main [ahead 1]\n'
+      : e.argv.includes('log')
+        ? 'aaa1111\t1000\tNuevo\nbbb2222\t-251000\tViejo\n'
+        : e.argv.includes('--abbrev-commit')
+          ? 'aaa1111\n'
+          : 'main\n'
+
+    return { value: { ...OK, stdout } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  await has(/aaa1111 ↑ Nuevo/)
+  await has(/bbb2222 Viejo/)
+  await has(/^2h$/)
+  await has(/^3d$/)
+  await ui.unmount()
+})
+
+test('el botón fetch hace git fetch con tope de 30 s y avisa', async ($, on) => {
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  const toasts: string[] = []
+  const fetches: { argv: readonly string[]; timeoutMs?: number }[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('process.run', (_, e) => {
+    if (e.argv.includes('fetch')) {
+      fetches.push({ argv: e.argv, ...(e.init?.timeoutMs === undefined ? {} : { timeoutMs: e.init.timeoutMs }) })
+    }
+
+    return { value: { ...OK, stdout: 'main\n' } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'fetch' })
+  expect(fetches).toEqual([{ argv: ['git', 'fetch'], timeoutMs: 30_000 }])
+  expect(toasts).toContain('Fetch hecho.')
   await ui.unmount()
 })

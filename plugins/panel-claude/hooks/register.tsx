@@ -46,7 +46,7 @@ const cache = atom({ plugin: 'panel-claude', key: 'cache' } as const, { at: null
 const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
-  shape: 'git-2',
+  shape: 'git-3',
 })
 // Los servidores MCP que aportan herramientas a la sesión.
 const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
@@ -85,6 +85,9 @@ const MAX_MAIN_FILES = 6
 const MAX_MCP = 8
 const MAX_COMMITS = 6
 const TICK_MS = 5000
+// Tras una herramienta que toca archivos, git se relee como mucho una vez por
+// este tiempo.
+const REREAD_MS = 1000
 const MAX_AGENTS = 6
 const MAX_TODOS = 12
 const ENDED = new Set(['completed', 'failed', 'killed'])
@@ -172,6 +175,15 @@ const fitPath = (path: string, room: number): string => {
   return `…/${shown}`
 }
 
+/** 90 -> "1m", 7200 -> "2h", 259200 -> "3d"; lo que pasa de `seconds` a `now`. */
+const ago = (seconds: number, now: number): string => {
+  const minutes = Math.max(0, Math.floor((now / 1000 - seconds) / 60))
+  if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d`
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h`
+
+  return `${minutes}m`
+}
+
 /** La rama actual, el commit corto si no hay rama, o null fuera de un repo. */
 const readBranch = async ($: EngineInterface, cwd: string) => {
   try {
@@ -209,10 +221,27 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
     // Código XY de git: X es el índice (staged) e Y la carpeta de trabajo.
     const staged = entries.filter(line => line[0] !== ' ' && line[0] !== '?').length
     const unstaged = entries.filter(line => line[1] !== ' ').length
+    // Las líneas por archivo; en un repo sin commits el comando falla y no hay números.
+    const numstat = await $.process.run(['git', 'diff', '--numstat', 'HEAD'], {
+      cwd,
+      timeoutMs: 5000,
+    })
+    const counts = new Map<string, { added?: number; removed?: number }>()
+    if (numstat.exitCode === 0) {
+      for (const line of numstat.stdout.split('\n')) {
+        const found = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line)
+        // Los archivos binarios traen "-": sin números.
+        if (found?.[1] === undefined || found[1] === '-') continue
+        counts.set(found[3] ?? '', {
+          added: Number(found[1]),
+          removed: Number(found[2]),
+        })
+      }
+    }
     const files = entries.map(line => ({
       code: line.slice(0, 2).trim(),
       path: line.slice(3),
-    }))
+    })).map(file => ({ ...file, ...(file.code === '??' ? {} : counts.get(file.path)) }))
     // Sin stash guardado el comando falla: cuenta como cero.
     const stash = await $.process.run(
       ['git', 'rev-list', '--walk-reflogs', '--count', 'refs/stash'],
@@ -221,9 +250,23 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
     const stashes = stash.exitCode === 0 ? Number.parseInt(stash.stdout, 10) || 0 : 0
     // Un repo recién creado no tiene commits: git log falla y la lista queda vacía.
     const log = await $.process.run(
-      ['git', 'log', `-${MAX_COMMITS}`, '--pretty=format:%h%x09%s'],
+      ['git', 'log', `-${MAX_COMMITS}`, '--pretty=format:%h%x09%ct%x09%s'],
       { cwd, timeoutMs: 5000 },
     )
+    const hasUpstream = head.includes('...')
+    // Los que faltan por subir; sin upstream el comando falla y no hay ninguno.
+    const unpushed = new Set<string>()
+    if (hasUpstream) {
+      const ahead = await $.process.run(
+        ['git', 'rev-list', '--abbrev-commit', '@{u}..HEAD'],
+        { cwd, timeoutMs: 3000 },
+      )
+      if (ahead.exitCode === 0) {
+        for (const hash of ahead.stdout.split('\n')) {
+          if (hash.trim() !== '') unpushed.add(hash.trim())
+        }
+      }
+    }
     const commits =
       log.exitCode !== 0
         ? []
@@ -231,9 +274,15 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
             .split('\n')
             .filter(line => line.includes('\t'))
             .map(line => {
-              const [hash = '', ...rest] = line.split('\t')
+              const [hash = '', time = '', ...rest] = line.split('\t')
+              const at = Number.parseInt(time, 10)
 
-              return { hash, subject: rest.join(' ') }
+              return {
+                hash,
+                subject: rest.join(' '),
+                ...(Number.isFinite(at) ? { at } : {}),
+                ...(unpushed.has(hash) ? { isUnpushed: true } : {}),
+              }
             })
 
     return {
@@ -243,7 +292,7 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
       unstaged,
       stashes,
       commits,
-      ...(head.includes('...')
+      ...(hasUpstream
         ? {
             upstream: {
               ahead: Number(/ahead (\d+)/.exec(head)?.[1] ?? 0),
@@ -253,6 +302,7 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
         : {}),
     }
   } catch {
+    return null
     return null
   }
 }
@@ -354,6 +404,35 @@ const touchCache = async ($: EngineInterface) => {
   await update($, clock, () => at)
 }
 
+// Cuándo se releyó git por última vez tras una herramienta.
+let lastReread = 0
+
+/** Relee git tras una herramienta, con el freno de una vez por segundo. */
+async function rereadGit($: EngineInterface) {
+  const at = await $.clock.now()
+  if (at - lastReread < REREAD_MS) return
+
+  lastReread = at
+  await refresh($).catch(() => undefined)
+}
+
+/** `git fetch` con tope de 30 s; avisa con un toast y relee el repo. */
+async function fetchRepo($: EngineInterface) {
+  try {
+    const cwd = await $.session.cwd()
+    const done = await $.process.run(['git', 'fetch'], { cwd, timeoutMs: 30_000 })
+    const reason = done.stderr.trim().split('\n')[0] ?? ''
+    $.ui.toast(
+      done.exitCode === 0
+        ? 'Fetch hecho.'
+        : `No se pudo hacer fetch${reason === '' ? '.' : `: ${reason}`}`,
+    )
+  } catch {
+    $.ui.toast('No se pudo hacer fetch (tiempo agotado).')
+  }
+  await refresh($).catch(() => undefined)
+}
+
 // Mientras lazygit está abierto, el panel relee el repo en cada tic del reloj.
 let isLazygitOpen = false
 
@@ -442,6 +521,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[cerrar]',
     })
     const started = await next(e)
+    lastReread = 0
 
     if (e.isInteractive) {
       await refresh($)
@@ -604,6 +684,32 @@ export const register: Register = (on, options) => {
     return ran
   })
 
+  // Estas herramientas cambian el repo: git se relee al terminar cada una.
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    const ran = await next(e)
+    await rereadGit($)
+
+    return ran
+  })
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    const ran = await next(e)
+    await rereadGit($)
+
+    return ran
+  })
+  on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
+    const ran = await next(e)
+    await rereadGit($)
+
+    return ran
+  })
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const ran = await next(e)
+    await rereadGit($)
+
+    return ran
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const now = await read($, info)
@@ -725,6 +831,7 @@ export const register: Register = (on, options) => {
     )
 
     const repo = await read($, git)
+    const nowMs = await $.clock.now()
     const files = repo?.files ?? []
     const fileColor = (code: string) =>
       code.includes('D')
@@ -733,16 +840,40 @@ export const register: Register = (on, options) => {
           ? 'success'
           : 'warning'
     // La lista de archivos con cambios, igual en MAIN y en GIT; solo cambia el tope.
+    const added = files.reduce((sum, file) => sum + (file.added ?? 0), 0)
+    const removed = files.reduce((sum, file) => sum + (file.removed ?? 0), 0)
+    const hasNumbers = files.some(file => file.added !== undefined)
     const changes = (max: number) => (
       <Box flexDirection="column">
-        {title(`Cambios · ${repo?.total ?? files.length}`)}
+        {title(
+          `Cambios · ${repo?.total ?? files.length}${hasNumbers ? `  +${added} −${removed}` : ''}`,
+        )}
         {files.length === 0 && <Text dimColor>Sin cambios pendientes.</Text>}
-        {files.slice(0, max).map(file => (
-          <Text wrap="truncate-start">
-            <Text color={fileColor(file.code)}>{file.code.padEnd(2)} </Text>
-            {fitPath(file.path, inner - 3)}
-          </Text>
-        ))}
+        {files.slice(0, max).map(file => {
+          const numbers =
+            file.added === undefined ? '' : `+${file.added} −${file.removed ?? 0}`
+
+          return (
+            <Box flexDirection="row" justifyContent="space-between" gap={1}>
+              <Text wrap="truncate-start">
+                <Text color={fileColor(file.code)}>{file.code.padEnd(2)} </Text>
+                {fitPath(file.path, inner - 3 - (numbers === '' ? 0 : numbers.length + 1))}
+              </Text>
+              {numbers !== '' && (
+                <Box flexShrink={0}>
+                  <Text>
+                    <Text color={file.added === 0 ? undefined : 'success'} dimColor={file.added === 0}>
+                      +{file.added}
+                    </Text>{' '}
+                    <Text color={file.removed ? 'error' : undefined} dimColor={!file.removed}>
+                      −{file.removed ?? 0}
+                    </Text>
+                  </Text>
+                </Box>
+              )}
+            </Box>
+          )
+        })}
         {(repo?.total ?? files.length) > max && (
           <Text dimColor>… y {(repo?.total ?? files.length) - max} más</Text>
         )}
@@ -764,12 +895,15 @@ export const register: Register = (on, options) => {
           {title(
             'Repositorio',
             repo === null ? undefined : (
-              <Button
-                key="lazygit"
-                label="lazygit"
-                hotkey="g"
-                onPress={() => openLazygit($, chosenTerminal)}
-              />
+              <Box flexDirection="row" gap={1}>
+                <Button key="fetch" label="fetch" hotkey="f" onPress={() => fetchRepo($)} />
+                <Button
+                  key="lazygit"
+                  label="lazygit"
+                  hotkey="g"
+                  onPress={() => openLazygit($, chosenTerminal)}
+                />
+              </Box>
             ),
           )}
           {repo === null ? (
@@ -799,10 +933,18 @@ export const register: Register = (on, options) => {
             <Text dimColor>Todavía no hay commits.</Text>
           )}
           {(repo?.commits ?? []).map(commit => (
-            <Text wrap="truncate-end">
-              <Text dimColor>{commit.hash} </Text>
-              {commit.subject}
-            </Text>
+            <Box flexDirection="row" justifyContent="space-between" gap={1}>
+              <Text wrap="truncate-end">
+                <Text dimColor>{commit.hash} </Text>
+                {commit.isUnpushed === true && <Text color="warning">↑ </Text>}
+                {commit.subject}
+              </Text>
+              {commit.at !== undefined && (
+                <Box flexShrink={0}>
+                  <Text dimColor>{ago(commit.at, nowMs)}</Text>
+                </Box>
+              )}
+            </Box>
           ))}
         </Box>
       )
