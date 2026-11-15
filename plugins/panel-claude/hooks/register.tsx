@@ -1328,6 +1328,30 @@ export const register: Register = (on, options) => {
 
     if (shown === 'git') {
       const upstream = repo?.upstream
+      // Cada acción lleva debajo del título su comando, para que se sepa qué hace.
+      const actions = [
+        {
+          key: 'fetch',
+          label: 'Obtener ramas',
+          hotkey: 'f',
+          command: 'git fetch',
+          run: () => fetchRepo($),
+        },
+        {
+          key: 'diff',
+          label: 'Ver diff',
+          hotkey: 'd',
+          command: 'git diff <archivo>',
+          run: () => openDiff($, chosenTerminal),
+        },
+        {
+          key: 'lazygit',
+          label: 'Abrir lazygit',
+          hotkey: 'g',
+          command: 'lazygit',
+          run: () => openLazygit($, chosenTerminal),
+        },
+      ]
 
       return (
         <Box
@@ -1338,26 +1362,7 @@ export const register: Register = (on, options) => {
           paddingX={1}
         >
           {tabs}
-          {title(
-            'Repositorio',
-            repo === null ? undefined : (
-              <Box flexDirection="row" gap={1}>
-                <Button key="fetch" label="fetch" hotkey="f" onPress={() => fetchRepo($)} />
-                <Button
-                  key="diff"
-                  label="diff"
-                  hotkey="d"
-                  onPress={() => openDiff($, chosenTerminal)}
-                />
-                <Button
-                  key="lazygit"
-                  label="lazygit"
-                  hotkey="g"
-                  onPress={() => openLazygit($, chosenTerminal)}
-                />
-              </Box>
-            ),
-          )}
+          {title('Repositorio')}
           {repo === null ? (
             <Text dimColor>Esta carpeta no es un repositorio git.</Text>
           ) : (
@@ -1377,6 +1382,24 @@ export const register: Register = (on, options) => {
             repo.total > 0 &&
             row('Stage', `${repo.staged} listos · ${repo.unstaged} sin stage`)}
           {repo !== null && repo.stashes > 0 && row('Stash', String(repo.stashes))}
+
+          {repo !== null && title('Acciones')}
+          {repo !== null &&
+            actions.map(action => (
+              <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                <Button
+                  key={action.key}
+                  label={action.label}
+                  hotkey={action.hotkey}
+                  onPress={action.run}
+                />
+                <Box flexShrink={1}>
+                  <Text dimColor wrap="truncate-end">
+                    {action.command}
+                  </Text>
+                </Box>
+              </Box>
+            ))}
 
           {repo !== null && groupedChanges()}
 
