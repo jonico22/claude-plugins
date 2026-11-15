@@ -526,8 +526,8 @@ test('GIT muestra remoto, stage y stash, y el botón abre lazygit', async ($, on
       ? '## main...origin/main [ahead 2, behind 1]\nM  listo.ts\n M hooks/register.tsx\n?? notas.md\n'
       : e.argv.includes('log')
         ? 'a1b2c3d\t1000\tPrimer commit\n'
-        : e.argv.includes('rev-list')
-          ? '3\n'
+        : e.argv.includes('stash')
+          ? 'stash@{0}\t999000\tOn main: a medias\nstash@{1}\t990000\tWIP on main: abc1234 otro\nstash@{2}\t980000\tOn main: viejo\n'
           : 'main\n'
     // De las terminales, solo kitty está instalada.
     const isMissing = e.argv[0] === 'sh' && !['lazygit', 'kitty'].includes(e.argv.at(-1) ?? '')
@@ -558,7 +558,8 @@ test('GIT muestra remoto, stage y stash, y el botón abre lazygit', async ($, on
   await has(/Cambios · 3/)
   await has(/↑2 ↓1/)
   await has(/1 listos · 2 sin stage/)
-  await has(/^3$/)
+  await has(/^Stash · 3$/)
+  await has(/a medias/)
   await ui.press({ key: 'lazygit' })
   expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo']])
   expect(toasts).toContain('lazygit abierto en kitty.')
@@ -1998,5 +1999,97 @@ test('desde una subcarpeta, lazygit se abre en la raíz del repo', async ($, on)
   await ui.press({ key: 'tab-git' })
   await ui.press({ key: 'lazygit' })
   expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo']])
+  await ui.unmount()
+})
+
+const STASH_LIST =
+  'stash@{0}\t999000\tWIP on main: abc1234 asunto\nstash@{1}\t990000\tOn main: mi mensaje\n'
+
+/** Monta GIT con un motor falso de git donde `stash` responde al `list` y al `show`. */
+const stashEngine = async (
+  $: Parameters<TestBody>[0],
+  on: On,
+  stash: (argv: readonly string[]) => { stdout?: string; exitCode?: number },
+) => {
+  const { calls } = repoEngine(on, argv =>
+    argv.includes('status')
+      ? '## main\n M a.ts\n'
+      : argv.includes('stash')
+        ? stash(argv)
+        : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+
+  return { ui, calls }
+}
+
+test('GIT lista los stash con el mensaje limpio y el total en el título', async ($, on) => {
+  const { ui } = await stashEngine($, on, () => ({ stdout: STASH_LIST }))
+
+  expect(await ui.find({ type: 'Text', text: /^Stash · 2$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /WIP · asunto/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /mi mensaje/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /abc1234|On main/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('GIT no muestra la sección Stash sin stash', async ($, on) => {
+  const { ui } = await stashEngine($, on, () => ({ stdout: '' }))
+
+  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Stash/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('pulsar un stash lee su resumen y volver a pulsarlo lo pliega', async ($, on) => {
+  const { ui, calls } = await stashEngine($, on, argv =>
+    argv.includes('show')
+      ? { stdout: ' a.ts | 1 +\n b.ts | 2 +-\n 2 files changed, 2 insertions(+), 1 deletion(-)\n' }
+      : { stdout: STASH_LIST },
+  )
+
+  expect(await ui.find({ type: 'Text', text: /b\.ts \| 2/ })).toBeUndefined()
+  await ui.press({ key: 'stash:stash@{1}' })
+  expect(calls.find(argv => argv.includes('show'))).toEqual([
+    'git', 'stash', 'show', '--stat', '--format=', 'stash@{1}',
+  ])
+  expect(await ui.find({ type: 'Text', text: /b\.ts \| 2/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /2 files changed/ })).toBeDefined()
+  await ui.press({ key: 'stash:stash@{1}' })
+  expect(await ui.find({ type: 'Text', text: /b\.ts \| 2/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('un stash que ya no existe al leerlo muestra un texto atenuado', async ($, on) => {
+  const { ui } = await stashEngine($, on, argv =>
+    argv.includes('show') ? { exitCode: 128, stdout: '' } : { stdout: STASH_LIST },
+  )
+
+  await ui.press({ key: 'stash:stash@{0}' })
+  expect(await ui.find({ type: 'Text', text: /Ese stash ya no existe/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('con más stash que el tope, el título lleva el total y solo se listan los primeros', async ($, on) => {
+  const many = Array.from(
+    { length: 11 },
+    (_, at) => `stash@{${at}}\t999000\tOn main: guardado ${at}\n`,
+  ).join('')
+  const { ui } = await stashEngine($, on, () => ({ stdout: many }))
+
+  expect(await ui.find({ type: 'Text', text: /^Stash · 11$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /guardado 7/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /guardado 8/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^… y 3 más$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('si git stash list falla, GIT se dibuja sin la sección', async ($, on) => {
+  const { ui } = await stashEngine($, on, () => ({ exitCode: 128, stdout: STASH_LIST }))
+
+  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Stash/ })).toBeUndefined()
   await ui.unmount()
 })

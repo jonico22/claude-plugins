@@ -105,8 +105,17 @@ export type PanelGit = {
   staged: number
   /** Cuántos tienen cambios sin pasar al índice (incluye los sin seguimiento). */
   unstaged: number
-  /** Cuántos stash hay guardados. */
+  /** Cuántos stash hay guardados en total (`stashList` guarda los primeros 8). */
   stashes: number
+  /** Los stash más recientes, el último primero. */
+  stashList: {
+    /** Su referencia, como `stash@{0}`. */
+    ref: string
+    /** Cuándo se guardó, en segundos (`%ct`). */
+    at?: number
+    /** El mensaje limpio: `WIP · asunto` o el que puso quien lo guardó. */
+    message: string
+  }[]
   /** Commits por subir y por bajar; ausente si la rama no sigue a un remoto. */
   upstream?: { ahead: number; behind: number }
   /** Los commits más recientes, el último primero. */
@@ -194,6 +203,10 @@ declare module 'claude-code' {
       openSession: string | null
       /** El resumen de cada sesión, por su id. */
       summaries: Shaped<Record<string, PanelSummary>>
+      /** El stash desplegado en GIT, por su referencia (`stash@{0}`); null si ninguno. */
+      openStash: string | null
+      /** El resumen (`git stash show --stat`) de cada stash desplegado, por su referencia. */
+      stashStat: Shaped<Record<string, PanelDiff>>
       /** Archivos de GIT desplegados, como `grupo:ruta` (`stage`, `unstaged`, `untracked`); el último al final. */
       expanded: Shaped<string[]>
       /** El diff resumido de cada archivo desplegado, por su clave `grupo:ruta`. */

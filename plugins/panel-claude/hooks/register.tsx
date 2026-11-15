@@ -67,7 +67,7 @@ const session = atom(
 const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
-  shape: 'git-5',
+  shape: 'git-6',
 })
 // Las rutas absolutas que Claude editó en esta sesión, y si GIT muestra solo esas.
 const touched = atom({ plugin: 'panel-claude', key: 'touched' } as const, [], {
@@ -94,6 +94,13 @@ const expanded = atom({ plugin: 'panel-claude', key: 'expanded' } as const, [], 
 })
 const diffs = atom({ plugin: 'panel-claude', key: 'diffs' } as const, {}, {
   shape: 'diffs-1',
+})
+
+// El stash desplegado en GIT, por su referencia (`stash@{0}`), y el resumen de
+// sus archivos, leído al desplegarlo.
+const openStash = atom({ plugin: 'panel-claude', key: 'openStash' } as const, null)
+const stashStat = atom({ plugin: 'panel-claude', key: 'stashStat' } as const, {}, {
+  shape: 'stashStat-1',
 })
 
 // Las sesiones guardadas de esta carpeta; null hasta que se abre la pestaña.
@@ -146,6 +153,8 @@ const MAX_CHECKS = 6
 // Cada cuánto, como mucho, se relee el PR mientras sus checks están pendientes.
 const PR_POLL_MS = 60_000
 const MAX_COMMITS = 6
+// Cuántos stash lista GIT; el título lleva el total real.
+const MAX_STASHES = 8
 const TICK_MS = 5000
 // Cuánto antes de que venza el caché avisa el toast: 1 min si dura 5 min, 5 min si dura 1 h.
 const ALERT_SHORT_MS = 60_000
@@ -402,6 +411,18 @@ async function readTreeChanges(
   )
 }
 
+/**
+ * El mensaje de un stash para mostrarlo: git escribe `WIP on rama: abc1234
+ * asunto` u `On rama: mensaje`; sin ninguna de las dos formas, el texto tal cual.
+ */
+function stashMessage(raw: string) {
+  const wip = /^WIP on [^:]*: [0-9a-f]+ (.*)$/.exec(raw)
+  if (wip?.[1] !== undefined) return `WIP · ${wip[1]}`
+  const named = /^On [^:]*: (.*)$/.exec(raw)
+
+  return named?.[1] ?? raw
+}
+
 /** Los archivos con cambios y los últimos commits; null fuera de un repo. */
 const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null> => {
   try {
@@ -468,12 +489,27 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
     const worktrees = listed.map((tree, at) =>
       changes[at] === undefined ? tree : { ...tree, changes: changes[at] },
     )
-    // Sin stash guardado el comando falla: cuenta como cero.
+    // Sin stash la salida es vacía; si el comando falla, la lista queda vacía.
     const stash = await $.process.run(
-      ['git', 'rev-list', '--walk-reflogs', '--count', 'refs/stash'],
+      ['git', 'stash', 'list', '--format=%gd%x09%ct%x09%gs'],
       { cwd, timeoutMs: 3000 },
     )
-    const stashes = stash.exitCode === 0 ? Number.parseInt(stash.stdout, 10) || 0 : 0
+    const stashed =
+      stash.exitCode !== 0
+        ? []
+        : stash.stdout
+            .split('\n')
+            .map(line => line.split('\t'))
+            .filter(parts => parts.length >= 3 && /^stash@\{\d+\}$/.test(parts[0] ?? ''))
+            .map(([ref = '', time = '', ...rest]) => {
+              const at = Number.parseInt(time, 10)
+
+              return {
+                ref,
+                ...(Number.isFinite(at) ? { at } : {}),
+                message: stashMessage(rest.join(' ')),
+              }
+            })
     // Un repo recién creado no tiene commits: git log falla y la lista queda vacía.
     const log = await $.process.run(
       ['git', 'log', `-${MAX_COMMITS}`, '--pretty=format:%h%x09%ct%x09%s'],
@@ -518,7 +554,8 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
       worktrees,
       staged,
       unstaged,
-      stashes,
+      stashes: stashed.length,
+      stashList: stashed.slice(0, MAX_STASHES),
       commits,
       ...(hasUpstream
         ? {
@@ -674,6 +711,50 @@ async function toggleFile($: EngineInterface, group: GroupId, path: string) {
 
   await update($, expanded, list => [...list, key])
   await readDiff($, await $.session.cwd(), path, group)
+}
+
+/**
+ * Lee el resumen de un stash (`git stash show --stat`) y lo guarda en
+ * `stashStat`: las líneas por archivo (hasta MAX_DIFF_LINES, contando la de
+ * totales, que va siempre la última) y cuántas faltan. Sin líneas, el stash ya
+ * no existe o no se pudo leer.
+ */
+async function readStash($: EngineInterface, cwd: string, ref: string) {
+  let lines: string[] = []
+  let more = 0
+  try {
+    const done = await $.process.run(['git', 'stash', 'show', '--stat', '--format=', ref], {
+      cwd,
+      timeoutMs: 5000,
+    })
+    if (done.exitCode === 0) {
+      const all = done.stdout.split('\n').filter(line => line.trim() !== '')
+      if (all.length > MAX_DIFF_LINES) {
+        const total = all.at(-1) ?? ''
+        more = all.length - MAX_DIFF_LINES
+        lines = [...all.slice(0, MAX_DIFF_LINES - 1), total]
+      } else {
+        lines = all
+      }
+    }
+  } catch {
+    // Sin resumen: el panel dice que el stash ya no existe.
+  }
+  const next: PanelDiff = { lines, more }
+  await update($, stashStat, before => ({ ...before, [ref]: next }))
+}
+
+/** Despliega o pliega un stash de la pestaña GIT; al desplegarlo lee su resumen. */
+async function toggleStash($: EngineInterface, ref: string) {
+  const open = await read($, openStash)
+  if (open === ref) {
+    await update($, openStash, () => null)
+
+    return
+  }
+
+  await update($, openStash, () => ref)
+  await readStash($, await $.session.cwd(), ref)
 }
 
 /** La carpeta donde Claude Code guarda las transcripciones de este proyecto. */
@@ -927,6 +1008,15 @@ const refresh = async (
   const repo = branch === null ? null : await readGit($, cwd)
   await update($, git, () => repo)
   await rereadDiffs($, cwd, repo)
+  // Las referencias se corren al guardar o sacar un stash: se relee el desplegado.
+  const openRef = await read($, openStash)
+  if (openRef !== null) {
+    if (repo?.stashList.some(one => one.ref === openRef) === true) {
+      await readStash($, cwd, openRef)
+    } else {
+      await update($, openStash, () => null)
+    }
+  }
   const counts = await readMcp($)
   if (counts !== null) await update($, mcp, known => mergeMcp(known, counts))
 }
@@ -1876,6 +1966,8 @@ export const register: Register = (on, options) => {
     )
 
     const repo = await read($, git)
+    const openRef = await read($, openStash)
+    const stashMap = await read($, stashStat)
     const openFiles = await read($, expanded)
     const diffMap = await read($, diffs)
     const nowMs = await $.clock.now()
@@ -2123,7 +2215,6 @@ export const register: Register = (on, options) => {
           {repo !== null &&
             repo.total > 0 &&
             row('Stage', `${repo.staged} listos · ${repo.unstaged} sin stage`)}
-          {repo !== null && repo.stashes > 0 && row('Stash', String(repo.stashes))}
 
           {repo !== null &&
             pull !== null &&
@@ -2214,6 +2305,44 @@ export const register: Register = (on, options) => {
               )}
             </Box>
           ))}
+
+          {repo !== null && repo.stashes > 0 && title(`Stash · ${repo.stashes}`)}
+          {(repo?.stashList ?? []).map(one => {
+            const when = one.at === undefined ? '' : ago(one.at, nowMs)
+            const room = Math.max(4, inner - (when === '' ? 0 : when.length + 1))
+            const summary = openRef === one.ref ? stashMap[one.ref] : undefined
+
+            return (
+              <Box flexDirection="column">
+                <Button key={`stash:${one.ref}`} plain onPress={() => toggleStash($, one.ref)}>
+                  <Text wrap="truncate-end">
+                    {(one.message.length > room
+                      ? `${one.message.slice(0, room - 1)}…`
+                      : one.message
+                    ).padEnd(room)}
+                    {when !== '' && <Text dimColor> {when}</Text>}
+                  </Text>
+                </Button>
+                {openRef === one.ref &&
+                  (summary === undefined || summary.lines.length === 0 ? (
+                    <Text dimColor>{summary === undefined ? '…' : 'Ese stash ya no existe.'}</Text>
+                  ) : (
+                    <Box flexDirection="column" paddingLeft={2}>
+                      {summary.lines.slice(0, -1).map(line => (
+                        <Text dimColor wrap="truncate-end">
+                          {line.trim()}
+                        </Text>
+                      ))}
+                      {summary.more > 0 && <Text dimColor>… y {summary.more} más</Text>}
+                      <Text wrap="truncate-end">{summary.lines.at(-1)?.trim()}</Text>
+                    </Box>
+                  ))}
+              </Box>
+            )
+          })}
+          {repo !== null && repo.stashes > MAX_STASHES && (
+            <Text dimColor>… y {repo.stashes - MAX_STASHES} más</Text>
+          )}
 
           {repo !== null &&
             repo.worktrees.length > 1 &&
