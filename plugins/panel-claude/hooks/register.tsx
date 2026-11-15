@@ -105,8 +105,10 @@ const stashStat = atom({ plugin: 'panel-claude', key: 'stashStat' } as const, {}
 
 // Las sesiones guardadas de esta carpeta; null hasta que se abre la pestaña.
 const sessions = atom({ plugin: 'panel-claude', key: 'sessions' } as const, null, {
-  shape: 'sessions-1',
+  shape: 'sessions-2',
 })
+// Lo que se escribió en el filtro de SESIONES; vacío si no hay filtro.
+const sessionQuery = atom({ plugin: 'panel-claude', key: 'sessionQuery' } as const, '')
 // La sesión desplegada en SESIONES, por su id.
 const openSession = atom({ plugin: 'panel-claude', key: 'openSession' } as const, null)
 // El resumen de cada sesión, por su id; se guardan también en `$.store`.
@@ -172,8 +174,9 @@ const MAX_AGENTS = 6
 const ENDED_KEEP_MS = 600_000
 const MAX_TODOS = 12
 const ENDED = new Set(['completed', 'failed', 'killed'])
-// Cuántas sesiones lista la pestaña SESIONES y cuántos archivos mira para
-// juntarlas (los de sesiones vacías se saltan).
+// Cuántas sesiones dibuja la pestaña SESIONES y cuántos archivos mira para
+// juntarlas (los de sesiones vacías se saltan). Se guardan las escaneadas, así
+// el filtro encuentra también sesiones que ya no caben entre las dibujadas.
 const MAX_SESSIONS = 12
 const SESSION_SCAN = 30
 // Cuántos resúmenes se guardan entre sesiones.
@@ -863,7 +866,6 @@ async function readSessions($: EngineInterface) {
   // Una sesión sin título ni prompt se abrió y se cerró sin usarse.
   const rows = all
     .filter(row => row.title !== '' || row.lastPrompt !== undefined)
-    .slice(0, MAX_SESSIONS)
   await update($, sessions, () => rows)
 
   const stored = await $.store.get('summaries').catch(() => undefined)
@@ -880,6 +882,22 @@ async function readSessions($: EngineInterface) {
       ),
     }))
   }
+}
+
+/** Minúsculas y sin marcas de acento: "Migración" -> "migracion". */
+const fold = (text: string) =>
+  text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+
+/**
+ * Si una sesión coincide con el filtro: todas las palabras de la consulta
+ * aparecen, en cualquier orden, en su título, último prompt o resumen, sin
+ * distinguir mayúsculas ni acentos. Una consulta vacía coincide con todo.
+ */
+function matchesQuery(one: PanelPast, summary: string | undefined, query: string) {
+  const words = fold(query).split(/\s+/).filter(word => word !== '')
+  const text = fold(`${one.title} ${one.lastPrompt ?? ''} ${summary ?? ''}`)
+
+  return words.every(word => text.includes(word))
 }
 
 /** Despliega una sesión de SESIONES, o la pliega si ya lo estaba. */
@@ -1838,7 +1856,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const { Box, Button, Input, Text } = $.ui.resolve(e)
     const now = await read($, info)
     const ticked = await read($, clock)
     const cachedAt = (await read($, cache)).at
@@ -2460,6 +2478,13 @@ export const register: Register = (on, options) => {
       const past = await read($, sessions)
       const openId = await read($, openSession)
       const summaryMap = await read($, summaries)
+      const query = await read($, sessionQuery)
+      const found = (past ?? []).filter(one =>
+        matchesQuery(one, summaryMap[one.id]?.text, query),
+      )
+      const filtering = query.trim() !== ''
+      const listed = found.slice(0, MAX_SESSIONS)
+      const count = past === null ? 0 : Math.min(past.length, MAX_SESSIONS)
 
       return (
         <Box
@@ -2471,14 +2496,35 @@ export const register: Register = (on, options) => {
         >
           {tabs}
           {title(
-            `Sesiones · ${past?.length ?? 0}`,
-            <Button key="reload" label="Actualizar" hotkey="u" onPress={() => readSessions($)} />,
+            filtering ? `Sesiones · ${found.length} de ${past?.length ?? 0}` : `Sesiones · ${count}`,
+            <Box flexDirection="row" columnGap={2}>
+              {query !== '' && (
+                <Button
+                  key="clear-filter"
+                  label="Borrar filtro"
+                  hotkey="x"
+                  onPress={() => update($, sessionQuery, () => '')}
+                />
+              )}
+              <Button key="reload" label="Actualizar" hotkey="u" onPress={() => readSessions($)} />
+            </Box>,
           )}
+          <Input
+            key="session-filter"
+            placeholder="Filtrar por título o prompt…"
+            value={query}
+            submitLabel="filtrar"
+            onInput={value => update($, sessionQuery, () => value)}
+            onSubmit={value => update($, sessionQuery, () => value)}
+          />
           {past === null && <Text dimColor>Leyendo las sesiones…</Text>}
           {past !== null && past.length === 0 && (
             <Text dimColor>Sin sesiones guardadas en esta carpeta.</Text>
           )}
-          {(past ?? []).map(one => {
+          {past !== null && past.length > 0 && found.length === 0 && (
+            <Text dimColor>Ninguna sesión coincide.</Text>
+          )}
+          {listed.map(one => {
             const when = one.isCurrent ? 'esta' : ago(one.at, nowMs)
             const room = Math.max(4, inner - 2 - when.length - 1)
             const name = one.title !== '' ? one.title : (one.lastPrompt ?? one.id)

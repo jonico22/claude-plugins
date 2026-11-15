@@ -216,6 +216,8 @@ declare module 'claude-code' {
       tab: 'main' | 'git' | 'tasks' | 'sessions'
       /** Las sesiones guardadas de esta carpeta; null hasta que se abre SESIONES. */
       sessions: Shaped<PanelPast[] | null>
+      /** Lo escrito en el filtro de SESIONES; vacío si no hay filtro. */
+      sessionQuery: string
       /** La sesión desplegada en SESIONES; null si ninguna. */
       openSession: string | null
       /** El resumen de cada sesión, por su id. */

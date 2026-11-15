@@ -1218,7 +1218,7 @@ const SESSIONS_OUT = [
 ].join('\n')
 
 /** Un motor falso con sesiones guardadas; guarda cada comando `sh` pedido. */
-const sessionsEngine = (on: On, prompts = '') => {
+const sessionsEngine = (on: On, prompts = '', listing = SESSIONS_OUT) => {
   const asked: (readonly string[])[] = []
   on('command.register', () => ({ value: { command: 'panel' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -1240,7 +1240,7 @@ const sessionsEngine = (on: On, prompts = '') => {
     return {
       value: {
         ...OK,
-        stdout: script.includes('ls -t') ? SESSIONS_OUT : script.includes('promptSource') ? prompts : '',
+        stdout: script.includes('ls -t') ? listing : script.includes('promptSource') ? prompts : '',
       },
     }
   })
@@ -1389,6 +1389,107 @@ test('Reanudar abre claude --resume con el id en una terminal', async ($, on) =>
   await ui.press({ key: 'resume' })
   expect(spawned).toHaveLength(1)
   expect(spawned[0]?.slice(-3)).toEqual(['claude', '--resume', 'aaa'])
+  await ui.unmount()
+})
+
+/** Un listado con 15 sesiones: la 13 y la 14 quedan fuera de las 12 dibujadas. */
+const MANY_OUT = [
+  ...Array.from({ length: 15 }, (_, i) => [
+    `F\ts${i}.jsonl\t${900 - i}`,
+    `{"type":"ai-title","aiTitle":"${
+      i === 13 ? 'Migración de la base' : i === 14 ? 'Fix del login' : `Tarea ${i}`
+    }"}`,
+    `{"type":"last-prompt","lastPrompt":"${i === 14 ? 'revisa el token de acceso' : `prompt ${i}`}"}`,
+  ]).flat(),
+  '',
+].join('\n')
+
+/** Abre SESIONES con el listado dado y devuelve la interfaz y un buscador de textos. */
+const openSessions = async ($: Parameters<TestBody>[0], on: On, listing: string) => {
+  sessionsEngine(on, '', listing)
+  on('store.get', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  const lacks = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeUndefined()
+
+  return { ui, has, lacks }
+}
+
+test('el filtro de SESIONES deja las que coinciden y el título dice M de N', async ($, on) => {
+  const { ui, has, lacks } = await openSessions($, on, SESSIONS_OUT)
+  await has(/^Sesiones · 2$/)
+  expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
+
+  await ui.input({ key: 'session-filter', text: 'diff' })
+  await has(/^Sesiones · 1 de 2$/)
+  await has(/arregla el diff/)
+  await lacks(/Pestaña de sesiones/)
+  await ui.unmount()
+})
+
+test('el filtro no distingue mayúsculas ni acentos', async ($, on) => {
+  const { ui, has } = await openSessions($, on, MANY_OUT)
+  await ui.input({ key: 'session-filter', text: 'MIGRACION' })
+  await has(/^Sesiones · 1 de 15$/)
+  await has(/Migración de la base/)
+  await ui.unmount()
+})
+
+test('el filtro pide todas las palabras, en cualquier orden, y mira el prompt', async ($, on) => {
+  const { ui, has, lacks } = await openSessions($, on, MANY_OUT)
+  await ui.input({ key: 'session-filter', text: 'token login' })
+  await has(/Fix del login/)
+  await has(/^Sesiones · 1 de 15$/)
+
+  await ui.input({ key: 'session-filter', text: 'login migracion' })
+  await lacks(/Fix del login/)
+  await has(/^Ninguna sesión coincide\.$/)
+  await ui.unmount()
+})
+
+test('sin coincidencias SESIONES dice que ninguna coincide', async ($, on) => {
+  const { ui, has } = await openSessions($, on, SESSIONS_OUT)
+  await ui.input({ key: 'session-filter', text: 'zzz' })
+  await has(/^Ninguna sesión coincide\.$/)
+  await has(/^Sesiones · 0 de 2$/)
+  await ui.unmount()
+})
+
+test('Borrar filtro solo sale con consulta y devuelve la lista completa', async ($, on) => {
+  const { ui, has } = await openSessions($, on, SESSIONS_OUT)
+  expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
+  await ui.input({ key: 'session-filter', text: 'diff' })
+  expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeDefined()
+
+  await ui.press({ key: 'clear-filter' })
+  expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
+  await has(/^Sesiones · 2$/)
+  await has(/Pestaña de sesiones/)
+  expect(await ui.find({ type: 'Input', key: 'session-filter' })).toMatchObject({ props: { value: '' } })
+  await ui.unmount()
+})
+
+test('el filtro encuentra sesiones fuera de las 12 dibujadas', async ($, on) => {
+  const { ui, has, lacks } = await openSessions($, on, MANY_OUT)
+  await has(/^Sesiones · 12$/)
+  await lacks(/Migración de la base/)
+
+  await ui.input({ key: 'session-filter', text: 'migración' })
+  await has(/Migración de la base/)
+  await ui.unmount()
+})
+
+test('Resumir sigue funcionando sobre la lista filtrada', async ($, on) => {
+  const { ui, has } = await openSessions($, on, SESSIONS_OUT)
+  await ui.input({ key: 'session-filter', text: 'pestaña' })
+  await has(/^Sesiones · 1 de 2$/)
+  await ui.press({ key: 'session:aaa' })
+  expect(await ui.find({ type: 'Button', key: 'summarize' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'resume' })).toBeDefined()
   await ui.unmount()
 })
 
