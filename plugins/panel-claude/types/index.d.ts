@@ -96,7 +96,7 @@ export type PanelGit = {
     changes?: number
     /** Bloqueado con `git worktree lock`. */
     isLocked?: boolean
-    /** Su carpeta ya no existe (`git worktree prune` lo limpia). */
+    /** Su carpeta ya no existe (el botón `Limpiar` ejecuta `git worktree prune`). */
     isPrunable?: boolean
   }[]
   /** Cuántos archivos tienen cambios en total (`files` guarda hasta 200). */

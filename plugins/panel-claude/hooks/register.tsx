@@ -1282,6 +1282,23 @@ async function fetchRepo($: EngineInterface) {
   await loadPr($).catch(() => undefined)
 }
 
+/** `git worktree prune` con tope de 10 s; avisa con un toast y relee el repo. */
+async function pruneTrees($: EngineInterface) {
+  try {
+    const cwd = await $.session.cwd()
+    const done = await $.process.run(['git', 'worktree', 'prune'], { cwd, timeoutMs: 10_000 })
+    const reason = done.stderr.trim().split('\n')[0] ?? ''
+    $.ui.toast(
+      done.exitCode === 0
+        ? 'Worktrees limpiados.'
+        : `No se pudieron limpiar los worktrees${reason === '' ? '.' : `: ${reason}`}`,
+    )
+  } catch {
+    $.ui.toast('No se pudieron limpiar los worktrees (tiempo agotado).')
+  }
+  await refresh($).catch(() => undefined)
+}
+
 // Mientras lazygit está abierto, el panel relee el repo en cada tic del reloj.
 let isLazygitOpen = false
 
@@ -2198,7 +2215,14 @@ export const register: Register = (on, options) => {
             </Box>
           ))}
 
-          {repo !== null && repo.worktrees.length > 1 && title(`Worktrees · ${repo.worktrees.length}`)}
+          {repo !== null &&
+            repo.worktrees.length > 1 &&
+            title(
+              `Worktrees · ${repo.worktrees.length}`,
+              repo.worktrees.some(tree => tree.isPrunable === true) ? (
+                <Button key="prune" label="Limpiar" hotkey="w" onPress={() => pruneTrees($)} />
+              ) : undefined,
+            )}
           {(repo !== null && repo.worktrees.length > 1 ? repo.worktrees : []).map(tree => {
             const dirty = tree.changes !== undefined && tree.changes > 0 ? `±${tree.changes}` : ''
             const mark = tree.isPrunable === true ? 'no existe' : tree.isLocked === true ? 'bloqueado' : ''
@@ -2211,7 +2235,7 @@ export const register: Register = (on, options) => {
                 plain
                 onPress={() =>
                   tree.isPrunable === true
-                    ? $.ui.toast('Ese worktree ya no existe en disco: git worktree prune lo limpia.')
+                    ? $.ui.toast('Ese worktree ya no existe en disco: pulsa Limpiar (w) para quitarlo.')
                     : openLazygit($, chosenTerminal, tree.path)
                 }
               >

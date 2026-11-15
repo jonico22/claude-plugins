@@ -1728,7 +1728,12 @@ test('con más de un worktree GIT los lista y el botón abre lazygit en ese work
   await ui.unmount()
 })
 
-const treesEngine = (on: On, porcelain: string, statusOf: (cwd: string | undefined) => { stdout?: string; exitCode?: number } | 'throw') => {
+const treesEngine = (
+  on: On,
+  porcelain: string,
+  statusOf: (cwd: string | undefined) => { stdout?: string; exitCode?: number } | 'throw',
+  prune: { stderr?: string; exitCode?: number } = {},
+) => {
   const runs: { argv: readonly string[]; cwd?: string }[] = []
   const spawned: string[][] = []
   baseEngine(on)
@@ -1742,6 +1747,8 @@ const treesEngine = (on: On, porcelain: string, statusOf: (cwd: string | undefin
 
       return { value: { ...OK, ...got } }
     }
+
+    if (text === 'git worktree prune') return { value: { ...OK, ...prune } }
 
     return {
       value: {
@@ -1808,7 +1815,46 @@ test('un worktree prunable lleva la marca, no corre git status y al pulsarlo avi
 
   await ui.press({ key: 'worktree:/tmp/demo-viejo' })
   expect(spawned).toEqual([])
-  expect(toasts.some(text => /ya no existe/.test(text))).toBe(true)
+  expect(toasts.some(text => /ya no existe en disco: pulsa Limpiar \(w\)/.test(text))).toBe(true)
+  await ui.unmount()
+})
+
+const PRUNABLE = TREES.replace('detached\n', 'detached\nprunable gitdir file points to non-existent location\n')
+
+test('con un worktree prunable sale Limpiar y al pulsarlo corre git worktree prune y avisa', async ($, on) => {
+  const { runs, toasts } = treesEngine(on, PRUNABLE, () => ({ stdout: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect((await ui.find({ type: 'Button', key: 'prune' }))?.props?.label).toBe('Limpiar')
+
+  await ui.press({ key: 'prune' })
+  const prunes = runs.filter(run => run.argv.includes('prune'))
+  expect(prunes.map(run => run.argv)).toEqual([['git', 'worktree', 'prune']])
+  expect(toasts).toContain('Worktrees limpiados.')
+  await ui.unmount()
+})
+
+test('sin worktrees prunables no sale el botón Limpiar', async ($, on) => {
+  treesEngine(on, TREES, () => ({ stdout: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^Worktrees · 3$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'prune' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('si git worktree prune falla, el toast lleva el motivo', async ($, on) => {
+  const { toasts } = treesEngine(on, PRUNABLE, () => ({ stdout: '' }), { exitCode: 1, stderr: 'fatal: algo\nmás\n' })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'prune' })
+  expect(toasts).toContain('No se pudieron limpiar los worktrees: fatal: algo')
   await ui.unmount()
 })
 
