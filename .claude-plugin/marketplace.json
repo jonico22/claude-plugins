@@ -8,7 +8,7 @@
       "name": "panel-claude",
       "source": "./plugins/panel-claude",
       "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes y tareas",
-      "version": "0.6.1"
+      "version": "0.7.0"
     }
   ]
 }
