@@ -2,7 +2,11 @@
 
 Mi marketplace personal de plugins para Claude Code.
 
-Las cuatro pestañas de `panel-claude`:
+Así se ve `panel-claude` al abrir Claude Code: el panel queda a la derecha de la conversación.
+
+<img src="docs/img/panel-inicio.png" alt="Claude Code recién abierto con panel-claude a la derecha, en la pestaña MAIN" width="820">
+
+El detalle de cada una de sus cuatro pestañas:
 
 <table>
   <tr><th>MAIN</th><th>GIT</th><th>TAREAS</th><th>SESIONES</th></tr>
