@@ -2,6 +2,18 @@
 
 Mi marketplace personal de plugins para Claude Code.
 
+Las cuatro pestañas de `panel-claude`:
+
+<table>
+  <tr><th>MAIN</th><th>GIT</th><th>TAREAS</th><th>SESIONES</th></tr>
+  <tr>
+    <td valign="top"><img src="docs/img/panel-main.png" alt="Pestaña MAIN: estado de la sesión, contexto, caché, límites, MCP y cambios" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-git.png" alt="Pestaña GIT: repositorio, pull request, acciones, cambios y commits" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-tareas.png" alt="Pestaña TAREAS: subagentes y lista de tareas" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-sesiones.png" alt="Pestaña SESIONES: sesiones recientes con su filtro" width="200"></td>
+  </tr>
+</table>
+
 ## Instalar
 
 ### Opción A: en un solo paso
@@ -107,10 +119,40 @@ Para apagarlo sin desinstalarlo: `claude plugin disable panel-claude@jonico22-pl
 |---|---|
 | `panel-claude` | Panel lateral con cuatro pestañas (`1` MAIN, `2` GIT, `3` TAREAS, `4` SESIONES). **MAIN:** carpeta, rama, modelo y duración de la sesión; contexto con barra, tokens y costo (con el del último turno); caché con cuenta regresiva, barra que pasa a naranja al 70 % y roja al 90 %, porcentaje leído del caché y aviso en un toast antes de que venza; límites de uso; servidores MCP (los que dejan de aportar herramientas salen en rojo); archivos con cambios y un resumen de subagentes y tareas; botón Compact; la fila Modo (normal, plan, sin permisos...) con el modo de permisos, leído de la transcripción de la sesión, así que va un turno atrasado si lo cambias con shift+tab. La fila Esfuerzo (bajo, medio, alto...) sale igual de la transcripción: aparece tras la primera respuesta y va un turno atrasada si lo cambias con `/effort`. **GIT:** rama, commits por subir y bajar, stage, stash, archivos (los renombrados salen con su ruta nueva) con `+líneas −líneas` agrupados en stage, sin stage y sin seguimiento (todos, con scroll; pulsa un archivo para ver un resumen de su diff y `d` o el botón `Ver diff` para abrir el diff completo en una ventana aparte, con delta si lo tienes), últimos commits con su hora, sección Acciones con `Obtener ramas` (`git fetch`, `f`), `Ver diff` (`d`) y `Abrir lazygit` (`l`), que abre [lazygit](https://github.com/jesseduffield/lazygit) en una ventana de terminal nueva (o en un popup dentro de tmux). Si hay más de una rama local, la sección Ramas las lista por commit más reciente (las primeras 8) con cuánto van por delante o por detrás de su remota. Los archivos que Claude editó en la sesión llevan una marca ✦, el título de Cambios cuenta `N de Claude` y el botón `Solo de Claude` (`o`) filtra la lista a esos. La sección Pull request (necesita [`gh`](https://cli.github.com/) con sesión iniciada; sin él no sale) muestra el PR de la rama, su estado, los checks de CI con los fallidos y pendientes por nombre y el botón `Abrir PR` (`p`); avisa con un toast cuando los checks terminan y se relee al entrar a GIT, tras `Obtener ramas`, tras un `git push` o `gh pr` de Claude y cada minuto mientras haya checks pendientes. Si el repo tiene varios worktrees, la sección Worktrees los lista con `±N` (archivos con cambios sin guardar, solo los primeros 8 y solo si N > 0), `bloqueado` si están bloqueados y `no existe` si su carpeta ya no está; pulsar uno abre lazygit ahí, salvo los que ya no existen, que solo avisan con un toast, y mientras haya alguno el botón `Limpiar` (`w`) ejecuta `git worktree prune`. La sección Stash lista los guardados con su mensaje y hace cuánto se hicieron (los primeros 8); pulsa uno para ver un resumen de los archivos que contiene. Git se relee tras cada edición de Claude. **TAREAS:** subagentes con duración y tokens, y la lista de tareas completa. **SESIONES:** las últimas sesiones de Claude Code en esta carpeta, con su título y hace cuánto se usaron; pulsa una para ver su último prompt, costo, duración y líneas cambiadas, `s` (`Resumir`) para pedir un resumen de 2 o 3 frases al modelo rápido (una llamada pequeña que suma al costo; el resumen queda guardado) y `r` (`Reanudar`) para abrirla con `claude --resume` en una ventana aparte. El campo de arriba filtra por título, último prompt o resumen, sin distinguir mayúsculas ni acentos, y busca entre las 30 sesiones más recientes aunque solo se dibujen 12; `x` (`Borrar filtro`) lo borra. Se abre solo al iniciar; `/panel` lo abre y `/panel cerrar` lo cierra. En `/config` eliges el color, la duración del caché (por defecto la lee de `promptCacheTtl`), el aviso de vencimiento, la terminal de las ventanas (lazygit, `Ver diff` y `Reanudar`), qué secciones de MAIN se muestran y si GIT muestra el Pull request (`showPr`). |
 
+### Comandos y atajos de panel-claude
+
+Comandos:
+
+| Comando | Qué hace |
+|---|---|
+| `/panel` | Abre el panel. |
+| `/panel cerrar` | Lo cierra. También valen `/panel close` y `/panel off`. |
+
+Atajos de teclado. Cada uno es la tecla del botón con el mismo nombre:
+
+| Tecla | Dónde funciona | Botón | Qué hace |
+|---|---|---|---|
+| `1` | Cualquier pestaña | MAIN | Va a la pestaña MAIN. |
+| `2` | Cualquier pestaña | GIT | Va a la pestaña GIT y relee el PR. |
+| `3` | Cualquier pestaña | TAREAS | Va a la pestaña TAREAS. |
+| `4` | Cualquier pestaña | SESIONES | Va a la pestaña SESIONES y relee la lista. |
+| `c` | MAIN, título Contexto | Compact | Compacta el contexto de la sesión. |
+| `o` | GIT, título Cambios | Solo de Claude / Todos | Filtra la lista a los archivos que editó Claude, o la muestra entera. Solo sale si Claude editó alguno. |
+| `p` | GIT, sección Pull request | Abrir PR | Abre el PR de la rama. Solo sale si la rama tiene PR. |
+| `f` | GIT, sección Acciones | Obtener ramas | Ejecuta `git fetch`. |
+| `d` | GIT, sección Acciones | Ver diff | Abre el diff completo en una ventana aparte. |
+| `l` | GIT, sección Acciones | Abrir lazygit | Abre lazygit en una ventana de terminal nueva. |
+| `w` | GIT, sección Worktrees | Limpiar | Ejecuta `git worktree prune`. Solo sale si algún worktree ya no existe. |
+| `u` | SESIONES | Actualizar | Relee la lista de sesiones. |
+| `x` | SESIONES | Borrar filtro | Borra el texto del filtro. Solo sale si hay un filtro escrito. |
+| `s` | SESIONES, sesión abierta | Resumir / Resumir de nuevo | Pide un resumen de la sesión al modelo rápido. |
+| `r` | SESIONES, sesión abierta | Reanudar | Abre la sesión con `claude --resume` en una ventana aparte. Solo sale si no es la sesión actual. |
+
 ## Estructura
 
 ```
 .claude-plugin/marketplace.json   lista de plugins
+docs/img/                         capturas del README
 plugins/<nombre>/
   .claude-plugin/plugin.json      nombre, versión, descripción
   hooks/hooks.json                nombra el módulo de hooks
