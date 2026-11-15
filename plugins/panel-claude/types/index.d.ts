@@ -196,6 +196,8 @@ declare module 'claude-code' {
       pr: Shaped<PanelPr | 'none' | null>
       /** El modo de permisos de la sesión, tal como lo guarda la transcripción; null si no se sabe. */
       mode: string | null
+      /** El nivel de esfuerzo de la última petición (low, medium, high...); null si no se sabe. */
+      effort: string | null
       cache: Shaped<PanelCache>
       cacheStats: Shaped<PanelCacheStats>
       session: Shaped<PanelSession>

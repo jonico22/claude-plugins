@@ -80,6 +80,8 @@ const pr = atom({ plugin: 'panel-claude', key: 'pr' } as const, null, {
 })
 // El modo de permisos, leído de la transcripción; null si no se sabe.
 const mode = atom({ plugin: 'panel-claude', key: 'mode' } as const, null)
+// El nivel de esfuerzo, leído de la transcripción; null si no se sabe.
+const effort = atom({ plugin: 'panel-claude', key: 'effort' } as const, null)
 // Los servidores MCP vistos en la sesión, aunque ya no aporten herramientas.
 const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
   shape: 'mcp-2',
@@ -1136,41 +1138,74 @@ const MODES: Record<string, string> = {
   dontAsk: 'no preguntar',
 }
 
+// Los niveles de esfuerzo, como se dicen en el panel.
+const EFFORTS: Record<string, string> = {
+  low: 'bajo',
+  medium: 'medio',
+  high: 'alto',
+  xhigh: 'muy alto',
+  max: 'máximo',
+}
+
+/**
+ * El último registro de la transcripción de esta sesión que pasa el filtro
+ * `grep` dado (un guion de sh que lee `$1`), ya como objeto; null si no hay.
+ */
+async function lastRecord($: EngineInterface, filter: string) {
+  try {
+    const dir = await sessionsDir($)
+    const id = await $.session.id()
+    if (typeof id !== 'string' || id === '') return null
+
+    const done = await $.process.run(
+      ['sh', '-c', `${filter} | tail -n 1`, 'sh', `${dir}/${id}.jsonl`],
+      { timeoutMs: 3000 },
+    )
+    const record = JSON.parse(done.stdout.trim()) as unknown
+
+    return typeof record === 'object' && record !== null
+      ? (record as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Lee el modo de permisos de la transcripción de esta sesión: su último
  * registro `permission-mode`. Queda un turno atrasado si se cambia con
  * shift+tab. Sin transcripción o sin registro, null.
  */
 async function readMode($: EngineInterface) {
-  let found: string | null = null
-  try {
-    const dir = await sessionsDir($)
-    const id = await $.session.id()
-    if (typeof id === 'string' && id !== '') {
-      const done = await $.process.run(
-        [
-          'sh',
-          '-c',
-          'grep -a "^{\\"type\\":\\"permission-mode\\"" "$1" | tail -n 1',
-          'sh',
-          `${dir}/${id}.jsonl`,
-        ],
-        { timeoutMs: 3000 },
-      )
-      const record = JSON.parse(done.stdout.trim()) as Record<string, unknown> | null
-      if (
-        typeof record === 'object' &&
-        record !== null &&
-        record['type'] === 'permission-mode' &&
-        typeof record['permissionMode'] === 'string'
-      ) {
-        found = record['permissionMode']
-      }
-    }
-  } catch {
-    // Sin modo: la fila no sale.
-  }
+  const record = await lastRecord($, 'grep -a "^{\\"type\\":\\"permission-mode\\"" "$1"')
+  const found =
+    record?.['type'] === 'permission-mode' && typeof record['permissionMode'] === 'string'
+      ? record['permissionMode']
+      : null
   await update($, mode, () => found)
+}
+
+/**
+ * Lee el nivel de esfuerzo de la transcripción: el `output_config.effort` de
+ * la última petición del hilo principal (el motor no lo expone). Queda un
+ * turno atrasado si se cambia con /effort, y no sale hasta la primera
+ * respuesta de una sesión nueva. Sin registro, null.
+ */
+async function readEffort($: EngineInterface) {
+  const record = await lastRecord(
+    $,
+    'grep -a "^{\\"type\\":\\"api-request\\"," "$1" | grep -a "\\"querySource\\":\\"repl_main_thread\\""',
+  )
+  const params = record?.['type'] === 'api-request' ? record['params'] : null
+  const config =
+    typeof params === 'object' && params !== null
+      ? (params as Record<string, unknown>)['output_config']
+      : null
+  const level =
+    typeof config === 'object' && config !== null
+      ? (config as Record<string, unknown>)['effort']
+      : null
+  await update($, effort, () => (typeof level === 'string' && level !== '' ? level : null))
 }
 
 /** Relee git tras una herramienta, con el freno de una vez por segundo. */
@@ -1316,7 +1351,17 @@ async function openLazygit($: EngineInterface, chosenTerminal?: string, folder?:
     return
   }
 
-  const cwd = folder ?? (await $.session.cwd())
+  // `lazygit -p` solo acepta la raíz del repo: desde una subcarpeta (la sesión
+  // puede haberse movido a una) falla con "is not a valid git repository".
+  // Un worktree elegido en el panel ya es una raíz.
+  const here = await $.session.cwd()
+  const top =
+    folder ??
+    (await $.process
+      .run(['git', 'rev-parse', '--show-toplevel'], { cwd: here, timeoutMs: 3000 })
+      .then(done => (done.exitCode === 0 ? done.stdout.trim() : ''))
+      .catch(() => ''))
+  const cwd = top.startsWith('/') ? top : here
   isLazygitOpen = true
   const isLaunched = await launchInTerminal(
     $,
@@ -1402,6 +1447,7 @@ export const register: Register = (on, options) => {
       await update($, onlyTouched, () => false)
       await refresh($)
       await readMode($)
+      await readEffort($)
       // El reloj del panel: mueve las cuentas regresivas del caché y los límites.
       ticking?.cancel()
       ticking = $.clock.every(TICK_MS, () => {
@@ -1475,6 +1521,7 @@ export const register: Register = (on, options) => {
       // La rama o la carpeta pueden haber cambiado durante el turno.
       await refresh($)
       await readMode($)
+      await readEffort($)
     } else {
       const { agentId } = e
       await syncAgents($)
@@ -1626,6 +1673,7 @@ export const register: Register = (on, options) => {
       }
     }
     const modeNow = await read($, mode)
+    const effortNow = await read($, effort)
     const sum = await read($, totals)
     const agentRows = (await read($, agents)).slice(-MAX_AGENTS)
     const todoRows = await read($, todos)
@@ -2300,6 +2348,7 @@ export const register: Register = (on, options) => {
         {row('Carpeta', fitPath(now.cwd, inner - 'Carpeta'.length - 1))}
         {row('Rama', now.branch ?? 'sin git', now.branch === null ? 'inactive' : 'success')}
         {row('Modelo', now.model)}
+        {effortNow !== null && row('Esfuerzo', EFFORTS[effortNow] ?? effortNow)}
         {modeNow !== null &&
           row(
             'Modo',

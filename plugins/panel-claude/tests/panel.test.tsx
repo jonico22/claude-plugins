@@ -1796,3 +1796,63 @@ test('el modo bypassPermissions sale en rojo como "sin permisos"', async ($, on)
   expect(mode?.props?.color).toBe('error')
   await ui.unmount()
 })
+
+test('Status muestra el nivel de esfuerzo de la última petición del hilo principal', async ($, on) => {
+  const asked = modeEngine(
+    on,
+    '{"type":"api-request","querySource":"repl_main_thread","params":{"model":"m","output_config":{"effort":"xhigh"}}}\n',
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(asked.some(argv => argv[2]?.includes('api-request'))).toBe(true)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Esfuerzo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^muy alto$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Modo$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('sin petición con esfuerzo en la transcripción no hay fila Esfuerzo', async ($, on) => {
+  modeEngine(on, '{"type":"api-request","querySource":"repl_main_thread","params":{"model":"m"}}\n')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Esfuerzo$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Modelo$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('desde una subcarpeta, lazygit se abre en la raíz del repo', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.toast', () => ({ value: undefined }))
+  mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo/plugins/uno' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  on('process.run', (_, e) => ({
+    value: {
+      ...OK,
+      exitCode:
+        e.argv[0] === 'sh' && !['lazygit', 'kitty'].includes(e.argv.at(-1) ?? '') ? 1 : 0,
+      stdout: e.argv.includes('--show-toplevel') ? '/tmp/demo\n' : e.argv.includes('log') ? '' : 'main\n',
+    },
+  }))
+  const spawned: (readonly string[])[] = []
+  on('process.spawn', async function* (_, e) {
+    spawned.push([...e.argv])
+
+    return { value: { code: 0, signal: null } }
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'lazygit' })
+  expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo']])
+  await ui.unmount()
+})
