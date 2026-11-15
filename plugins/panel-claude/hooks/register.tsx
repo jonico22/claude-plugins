@@ -4,6 +4,7 @@ import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 import type {
   PanelAgent,
   PanelCacheStats,
+  PanelDiff,
   PanelGit,
   PanelInfo,
   PanelLimit,
@@ -70,6 +71,14 @@ const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
   shape: 'mcp-2',
 })
 const tab = atom({ plugin: 'panel-claude', key: 'tab' } as const, 'main')
+// Los archivos desplegados de la pestaña GIT, como `grupo:ruta`, el último al
+// final, y su diff resumido por esa misma clave.
+const expanded = atom({ plugin: 'panel-claude', key: 'expanded' } as const, [], {
+  shape: 'expanded-1',
+})
+const diffs = atom({ plugin: 'panel-claude', key: 'diffs' } as const, {}, {
+  shape: 'diffs-1',
+})
 
 // El color del marco y los títulos; se elige en /config.
 const ACCENTS: Record<string, string> = {
@@ -96,6 +105,8 @@ const TERMINAL_ARGS: Record<string, string[]> = {
   wezterm: ['start', '--'],
   'gnome-terminal': ['--'],
 }
+// Cuántas líneas de contenido guarda el diff resumido de un archivo.
+const MAX_DIFF_LINES = 20
 // En GIT cada grupo de Cambios muestra hasta este número de archivos.
 const MAX_GROUP_FILES = 15
 // En MAIN la lista de cambios es más corta: comparte el panel con todo lo demás.
@@ -364,6 +375,118 @@ const mergeMcp = (known: PanelMcp[], counts: Map<string, number>): PanelMcp[] =>
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+type GroupId = 'stage' | 'unstaged' | 'untracked'
+type GitFile = PanelGit['files'][number]
+
+/** Si el archivo sale en ese grupo de la pestaña GIT. */
+function inGroup(file: GitFile, group: GroupId) {
+  return group === 'stage'
+    ? file.index !== ' ' && file.index !== '?'
+    : group === 'unstaged'
+      ? file.worktree !== ' ' && file.code !== '??'
+      : file.code === '??'
+}
+
+/** La clave de un archivo desplegado: `grupo:ruta`. */
+function diffKey(group: GroupId, path: string) {
+  return `${group}:${path}`
+}
+
+/** Separa una clave en su grupo y su ruta. */
+function splitKey(key: string): { group: GroupId; path: string } {
+  const at = key.indexOf(':')
+
+  return { group: key.slice(0, at) as GroupId, path: key.slice(at + 1) }
+}
+
+/**
+ * Lee el diff resumido de un archivo y lo guarda en `diffs`: hasta
+ * MAX_DIFF_LINES líneas de contenido (con las cabeceras `@@` como separador)
+ * y cuántas faltan. Sin líneas (binario, vacío o un fallo) no hay vista previa.
+ */
+async function readDiff($: EngineInterface, cwd: string, file: string, group: GroupId) {
+  const argv =
+    group === 'untracked'
+      ? ['git', 'diff', '--no-index', '-U0', '--no-color', '--', '/dev/null', file]
+      : [
+          'git',
+          'diff',
+          '-U0',
+          '--no-color',
+          ...(group === 'stage' ? ['--cached'] : []),
+          '--',
+          file,
+        ]
+  const lines: string[] = []
+  let more = 0
+  try {
+    const done = await $.process.run(argv, { cwd, timeoutMs: 5000 })
+    // Con --no-index, el código 1 solo dice que hay diferencias.
+    if (done.exitCode === 0 || (group === 'untracked' && done.exitCode === 1)) {
+      let isBody = false
+      let shown = 0
+      for (const line of done.stdout.split('\n')) {
+        if (line.startsWith('@@')) {
+          isBody = true
+          if (shown < MAX_DIFF_LINES) lines.push(line)
+        } else if (line.startsWith('diff --git')) {
+          isBody = false
+        } else if (isBody && /^[+-]/.test(line)) {
+          if (shown < MAX_DIFF_LINES) {
+            lines.push(line)
+            shown += 1
+          } else {
+            more += 1
+          }
+        }
+      }
+    }
+  } catch {
+    // Sin diff: el panel dice que no hay vista previa.
+  }
+  const next: PanelDiff = { lines, more }
+  await update($, diffs, before => ({ ...before, [diffKey(group, file)]: next }))
+}
+
+/** Tras releer git: relee los diffs desplegados y olvida los de archivos que ya no están. */
+async function rereadDiffs($: EngineInterface, cwd: string, repo: PanelGit | null) {
+  const open = await read($, expanded)
+  if (open.length === 0) return
+
+  const keep = open.filter(key => {
+    const { group, path } = splitKey(key)
+
+    return repo?.files.some(file => file.path === path && inGroup(file, group)) === true
+  })
+  if (keep.length !== open.length) {
+    await update($, expanded, () => keep)
+    await update($, diffs, before =>
+      Object.fromEntries(Object.entries(before).filter(([key]) => keep.includes(key))),
+    )
+  }
+  await Promise.all(
+    keep.map(key => {
+      const { group, path } = splitKey(key)
+
+      return readDiff($, cwd, path, group)
+    }),
+  )
+}
+
+/** Despliega o pliega un archivo de la pestaña GIT; al desplegarlo lee su diff. */
+async function toggleFile($: EngineInterface, group: GroupId, path: string) {
+  const key = diffKey(group, path)
+  const open = await read($, expanded)
+  if (open.includes(key)) {
+    await update($, expanded, list => list.filter(one => one !== key))
+
+    return
+  }
+
+  await update($, expanded, list => [...list, key])
+  await readDiff($, await $.session.cwd(), path, group)
+}
+
 /** Lee la sesión y guarda la foto que el panel dibuja. */
 const refresh = async (
   $: EngineInterface,
@@ -410,6 +533,7 @@ const refresh = async (
   }
   const repo = branch === null ? null : await readGit($, cwd)
   await update($, git, () => repo)
+  await rereadDiffs($, cwd, repo)
   const counts = await readMcp($)
   if (counts !== null) await update($, mcp, known => mergeMcp(known, counts))
 }
@@ -536,71 +660,152 @@ async function fetchRepo($: EngineInterface) {
 // Mientras lazygit está abierto, el panel relee el repo en cada tic del reloj.
 let isLazygitOpen = false
 
+/** Si el comando existe en el PATH. */
+async function hasCommand($: EngineInterface, name: string) {
+  return $.process
+    .run(['sh', '-c', 'command -v "$1" >/dev/null', 'sh', name], { timeoutMs: 3000 })
+    .then(found => found.exitCode === 0)
+    .catch(() => false)
+}
+
+/** Entrecomilla una palabra para el shell que usa el popup de tmux. */
+function shellQuote(word: string) {
+  return /^[\w./=:@%+,-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`
+}
+
 /**
- * Abre lazygit sobre la carpeta de la sesión: en un popup de tmux si la
- * sesión corre dentro de tmux, y si no en una ventana de terminal nueva
- * (lazygit necesita una terminal propia; no se puede dibujar en el panel).
+ * Corre `command` en una ventana propia: un popup de tmux si la sesión corre
+ * dentro de tmux, y si no una terminal nueva (la elegida en /config, $TERMINAL
+ * o la primera instalada). `name` sale en los avisos; `onClose` corre cuando el
+ * proceso termina. Devuelve si llegó a lanzarlo.
  */
-const openLazygit = async ($: EngineInterface, chosenTerminal?: string) => {
+async function launchInTerminal(
+  $: EngineInterface,
+  command: string[],
+  cwd: string,
+  chosenTerminal: string | undefined,
+  name: string,
+  onClose?: () => Promise<void>,
+) {
+  let argv: string[]
+  let where: string
+  const tmux = await $.env.get('TMUX')
+  if (tmux !== undefined && tmux !== '') {
+    argv = [
+      'tmux',
+      'display-popup',
+      '-E',
+      '-w',
+      '90%',
+      '-h',
+      '90%',
+      '-d',
+      cwd,
+      command.map(shellQuote).join(' '),
+    ]
+    where = 'tmux'
+  } else {
+    let terminal = chosenTerminal ?? (await $.env.get('TERMINAL'))
+    if (terminal === undefined || terminal === '') {
+      terminal = undefined
+      for (const candidate of TERMINALS) {
+        if (await hasCommand($, candidate)) {
+          terminal = candidate
+          break
+        }
+      }
+    }
+    if (terminal === undefined) {
+      $.ui.toast(`No encontré una terminal para abrir ${name}; elige una en /config.`)
+
+      return false
+    }
+    where = terminal.split('/').at(-1) ?? terminal
+    argv = [terminal, ...(TERMINAL_ARGS[where] ?? ['-e']), ...command]
+  }
+
+  $.ui.toast(`${name} abierto en ${where}.`)
+  // El bucle es la vida del proceso: sigue hasta que se cierra la ventana.
+  void (async () => {
+    try {
+      for await (const piece of $.process.spawn({ argv, cwd })) void piece
+    } catch {
+      $.ui.toast(`No se pudo abrir ${name} en ${where}.`)
+    } finally {
+      await onClose?.()
+    }
+  })()
+
+  return true
+}
+
+/**
+ * Abre lazygit sobre la carpeta de la sesión (necesita una terminal propia; no
+ * se puede dibujar en el panel).
+ */
+async function openLazygit($: EngineInterface, chosenTerminal?: string) {
   if (isLazygitOpen) {
     $.ui.toast('lazygit ya está abierto.')
 
     return
   }
 
-  const has = async (name: string) =>
-    $.process
-      .run(['sh', '-c', 'command -v "$1" >/dev/null', 'sh', name], { timeoutMs: 3000 })
-      .then(found => found.exitCode === 0)
-      .catch(() => false)
-
-  if (!(await has('lazygit'))) {
+  if (!(await hasCommand($, 'lazygit'))) {
     $.ui.toast('lazygit no está instalado.')
 
     return
   }
 
   const cwd = await $.session.cwd()
-  let argv: string[]
-  let where: string
-  const tmux = await $.env.get('TMUX')
-  if (tmux !== undefined && tmux !== '') {
-    argv = ['tmux', 'display-popup', '-E', '-w', '90%', '-h', '90%', '-d', cwd, 'lazygit']
-    where = 'tmux'
-  } else {
-    let terminal = chosenTerminal ?? (await $.env.get('TERMINAL'))
-    if (terminal === undefined || terminal === '') {
-      terminal = undefined
-      for (const name of TERMINALS) {
-        if (await has(name)) {
-          terminal = name
-          break
-        }
-      }
-    }
-    if (terminal === undefined) {
-      $.ui.toast('No encontré una terminal para abrir lazygit; elige una en /config.')
-
-      return
-    }
-    where = terminal.split('/').at(-1) ?? terminal
-    argv = [terminal, ...(TERMINAL_ARGS[where] ?? ['-e']), 'lazygit', '-p', cwd]
-  }
-
   isLazygitOpen = true
-  $.ui.toast(`lazygit abierto en ${where}.`)
-  // El bucle es la vida del proceso: sigue hasta que se cierra lazygit.
-  void (async () => {
-    try {
-      for await (const piece of $.process.spawn({ argv, cwd })) void piece
-    } catch {
-      $.ui.toast(`No se pudo abrir lazygit en ${where}.`)
-    } finally {
+  const isLaunched = await launchInTerminal(
+    $,
+    ['lazygit', '-p', cwd],
+    cwd,
+    chosenTerminal,
+    'lazygit',
+    async () => {
       isLazygitOpen = false
       // Lo que se hizo en lazygit (commits, stage) se ve al cerrarlo.
       await refresh($).catch(() => undefined)
-    }
-  })()
+    },
+  )
+  if (!isLaunched) isLazygitOpen = false
+}
+
+/**
+ * Abre el diff completo, contra HEAD, del último archivo desplegado, con delta
+ * si está instalado y si no con less.
+ */
+async function openDiff($: EngineInterface, chosenTerminal?: string) {
+  const repo = await read($, git)
+  const open = await read($, expanded)
+  const key = open
+    .slice().reverse()
+    .find(one => {
+      const { group, path } = splitKey(one)
+
+      return repo?.files.some(file => file.path === path && inGroup(file, group)) === true
+    })
+  if (key === undefined) {
+    $.ui.toast('Despliega un archivo en GIT para ver su diff.')
+
+    return
+  }
+
+  const { group, path } = splitKey(key)
+  const source =
+    group === 'untracked'
+      ? 'git diff --no-index --color=always -- /dev/null "$1"'
+      : 'git diff --color=always HEAD -- "$1"'
+  const pager = 'if command -v delta >/dev/null 2>&1; then delta --paging=always; else less -R; fi'
+  await launchInTerminal(
+    $,
+    ['sh', '-c', `${source} | ${pager}`, 'sh', path],
+    await $.session.cwd(),
+    chosenTerminal,
+    'diff',
+  )
 }
 
 export const register: Register = (on, options) => {
@@ -969,6 +1174,8 @@ export const register: Register = (on, options) => {
     )
 
     const repo = await read($, git)
+    const openFiles = await read($, expanded)
+    const diffMap = await read($, diffs)
     const nowMs = await $.clock.now()
     const files = repo?.files ?? []
     const fileColor = (code: string) =>
@@ -1010,6 +1217,48 @@ export const register: Register = (on, options) => {
         </Box>
       )
     }
+    // Una fila de la pestaña GIT: un botón que despliega debajo el diff resumido.
+    const groupFile = (group: GroupId, file: GitFile, code: string) => {
+      const key = diffKey(group, file.path)
+      const numbers =
+        file.added === undefined ? '' : `+${file.added} −${file.removed ?? 0}`
+      const room = inner - 3 - (numbers === '' ? 0 : numbers.length + 1)
+      const shownDiff = openFiles.includes(key) ? diffMap[key] : undefined
+
+      return (
+        <Box flexDirection="column">
+          <Button key={key} plain onPress={() => toggleFile($, group, file.path)}>
+            <Text wrap="truncate-end">
+              <Text color={fileColor(code)}>{code.padEnd(2)} </Text>
+              {fitPath(file.path, room).padEnd(room)}
+              {numbers !== '' && (
+                <Text dimColor> {numbers}</Text>
+              )}
+            </Text>
+          </Button>
+          {openFiles.includes(key) &&
+            (shownDiff === undefined || shownDiff.lines.length === 0 ? (
+              <Text dimColor>{shownDiff === undefined ? '…' : 'Sin vista previa.'}</Text>
+            ) : (
+              <Box flexDirection="column">
+                {shownDiff.lines.map(line => (
+                  <Text
+                    wrap="truncate-end"
+                    {...(line.startsWith('+')
+                      ? { color: 'success' }
+                      : line.startsWith('-')
+                        ? { color: 'error' }
+                        : { dimColor: true })}
+                  >
+                    {line}
+                  </Text>
+                ))}
+                {shownDiff.more > 0 && <Text dimColor>… y {shownDiff.more} líneas más</Text>}
+              </Box>
+            ))}
+        </Box>
+      )
+    }
     // MAIN: lista plana con tope; el total va en el título.
     const changes = (max: number) => (
       <Box flexDirection="column">
@@ -1025,18 +1274,21 @@ export const register: Register = (on, options) => {
     // (p. ej. "MM") sale en los dos primeros.
     const groups = [
       {
+        id: 'stage' as const,
         label: 'En stage',
         rows: files
           .filter(file => file.index !== ' ' && file.index !== '?')
           .map(file => ({ file, code: file.index })),
       },
       {
+        id: 'unstaged' as const,
         label: 'Sin stage',
         rows: files
           .filter(file => file.worktree !== ' ' && file.code !== '??')
           .map(file => ({ file, code: file.worktree })),
       },
       {
+        id: 'untracked' as const,
         label: 'Sin seguimiento',
         rows: files.filter(file => file.code === '??').map(file => ({ file, code: '??' })),
       },
@@ -1064,7 +1316,7 @@ export const register: Register = (on, options) => {
               </Box>
               {group.rows
                 .slice(0, MAX_GROUP_FILES)
-                .map(({ file, code }) => fileRow(file, code))}
+                .map(({ file, code }) => groupFile(group.id, file, code))}
               {group.rows.length > MAX_GROUP_FILES && (
                 <Text dimColor>… y {group.rows.length - MAX_GROUP_FILES} más</Text>
               )}
@@ -1091,6 +1343,12 @@ export const register: Register = (on, options) => {
             repo === null ? undefined : (
               <Box flexDirection="row" gap={1}>
                 <Button key="fetch" label="fetch" hotkey="f" onPress={() => fetchRepo($)} />
+                <Button
+                  key="diff"
+                  label="diff"
+                  hotkey="d"
+                  onPress={() => openDiff($, chosenTerminal)}
+                />
                 <Button
                   key="lazygit"
                   label="lazygit"

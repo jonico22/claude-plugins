@@ -77,6 +77,14 @@ export type PanelGit = {
   }[]
 }
 
+/** El diff resumido de un archivo: sus primeras líneas y cuántas faltan. */
+export type PanelDiff = {
+  /** Líneas `+`, `-` y `@@` (separador); vacío si no hay vista previa. */
+  lines: string[]
+  /** Cuántas líneas de contenido no caben en `lines`. */
+  more: number
+}
+
 /** Un servidor MCP visto en la sesión: sus herramientas hoy y las máximas que dio. */
 export type PanelMcp = {
   name: string
@@ -123,6 +131,10 @@ declare module 'claude-code' {
       /** Los servidores vistos en la sesión; vacío si nunca hubo uno. */
       mcp: Shaped<PanelMcp[]>
       tab: 'main' | 'git' | 'tasks'
+      /** Archivos de GIT desplegados, como `grupo:ruta` (`stage`, `unstaged`, `untracked`); el último al final. */
+      expanded: Shaped<string[]>
+      /** El diff resumido de cada archivo desplegado, por su clave `grupo:ruta`. */
+      diffs: Shaped<Record<string, PanelDiff>>
       cache: Shaped<PanelCache>
       cacheStats: Shaped<PanelCacheStats>
       session: Shaped<PanelSession>

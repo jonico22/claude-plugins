@@ -1068,3 +1068,138 @@ test('GIT muestra 15 por grupo y "… y N más"; MAIN sigue en 6', async ($, on)
   expect(await ui.find({ type: 'Text', text: /^… y 5 más$/ })).toBeDefined()
   await ui.unmount()
 })
+
+/** Un motor falso de git con un diff por archivo; guarda cada comando `git diff` pedido. */
+const diffEngine = (on: On, status: string, diff: (argv: readonly string[]) => string) => {
+  const asked: (readonly string[])[] = []
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', (_, e) => {
+    const isDiff = e.argv[0] === 'git' && e.argv.includes('diff') && e.argv.includes('-U0')
+    if (isDiff) asked.push(e.argv)
+    const stdout = isDiff
+      ? diff(e.argv)
+      : e.argv.includes('status')
+        ? status
+        : e.argv.includes('log') || e.argv.includes('--numstat')
+          ? ''
+          : 'main\n'
+
+    return { value: { ...OK, exitCode: isDiff && e.argv.includes('--no-index') ? 1 : 0, stdout } }
+  })
+
+  return asked
+}
+
+const HEADERS =
+  'diff --git a/a.ts b/a.ts\nindex 111..222 100644\n--- a/a.ts\n+++ b/a.ts\n'
+
+test('pulsar un archivo de GIT despliega su diff coloreado y volver a pulsarlo lo pliega', async ($, on) => {
+  const asked = diffEngine(
+    on,
+    'M  a.ts\n M b.ts\n',
+    () => `${HEADERS}@@ -1,2 +1,2 @@\n-viejo\n+nuevo\n`,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^\+nuevo$/ })).toBeUndefined()
+
+  await ui.press({ key: 'stage:a.ts' })
+  expect(asked).toEqual([['git', 'diff', '-U0', '--no-color', '--cached', '--', 'a.ts']])
+  expect((await ui.find({ type: 'Text', text: /^\+nuevo$/ }))?.props?.color).toBe('success')
+  expect((await ui.find({ type: 'Text', text: /^-viejo$/ }))?.props?.color).toBe('error')
+  expect((await ui.find({ type: 'Text', text: /^@@ -1,2/ }))?.props?.dimColor).toBe(true)
+  // Las cabeceras de git no salen.
+  expect(await ui.find({ type: 'Text', text: /^(diff --git|index|---|\+\+\+)/ })).toBeUndefined()
+
+  // Sin stage usa el diff sin --cached.
+  await ui.press({ key: 'unstaged:b.ts' })
+  expect(asked.at(-1)).toEqual(['git', 'diff', '-U0', '--no-color', '--', 'b.ts'])
+
+  await ui.press({ key: 'stage:a.ts' })
+  await ui.press({ key: 'unstaged:b.ts' })
+  expect(await ui.find({ type: 'Text', text: /^\+nuevo$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('el diff resumido guarda 20 líneas y dice cuántas faltan', async ($, on) => {
+  const body = Array.from({ length: 27 }, (_, index) => `+línea ${index}\n`).join('')
+  diffEngine(on, ' M a.ts\n', () => `${HEADERS}@@ -0,0 +1,27 @@\n${body}`)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'unstaged:a.ts' })
+  expect(await ui.find({ type: 'Text', text: /^\+línea 19$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\+línea 20$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^… y 7 líneas más$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('un archivo sin seguimiento usa git diff --no-index y acepta el código 1', async ($, on) => {
+  const asked = diffEngine(on, '?? nuevo.md\n', () => 'diff --git a/nuevo.md b/nuevo.md\nnew file mode 100644\n--- /dev/null\n+++ b/nuevo.md\n@@ -0,0 +1 @@\n+hola\n')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'untracked:nuevo.md' })
+  expect(asked).toEqual([
+    ['git', 'diff', '--no-index', '-U0', '--no-color', '--', '/dev/null', 'nuevo.md'],
+  ])
+  expect(await ui.find({ type: 'Text', text: /^\+hola$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('un binario o un diff vacío dicen Sin vista previa.', async ($, on) => {
+  diffEngine(on, ' M foto.png\n', () => 'diff --git a/foto.png b/foto.png\nBinary files a/foto.png and b/foto.png differ\n')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'unstaged:foto.png' })
+  expect(await ui.find({ type: 'Text', text: /^Sin vista previa\.$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('la tecla d abre el diff completo del último archivo desplegado, o avisa', async ($, on) => {
+  const spawned: string[][] = []
+  const toasts: string[] = []
+  diffEngine(on, ' M a.ts\n?? nuevo.md\n', () => `${HEADERS}@@ -1 +1 @@\n-a\n+b\n`)
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('process.spawn', async function* (_, e) {
+    spawned.push([...e.argv])
+
+    return { value: { code: 0, signal: null } }
+  })
+  // El motor falso dice que todo comando existe: se usa la primera terminal, ghostty.
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  await ui.press({ key: 'diff' })
+  expect(toasts).toContain('Despliega un archivo en GIT para ver su diff.')
+  expect(spawned).toEqual([])
+
+  await ui.press({ key: 'unstaged:a.ts' })
+  await ui.press({ key: 'diff' })
+  expect(spawned).toHaveLength(1)
+  const [terminal, flag, ...command] = spawned[0] ?? []
+  expect(terminal).toBe('ghostty')
+  expect(flag).toBe('-e')
+  expect(command[0]).toBe('sh')
+  expect(command[1]).toBe('-c')
+  expect(command[2]).toContain('git diff --color=always HEAD -- "$1" | if command -v delta')
+  expect(command.slice(3)).toEqual(['sh', 'a.ts'])
+
+  await ui.press({ key: 'untracked:nuevo.md' })
+  await ui.press({ key: 'diff' })
+  expect(spawned[1]?.at(-3)).toContain('git diff --no-index --color=always -- /dev/null "$1"')
+  expect(spawned[1]?.at(-1)).toBe('nuevo.md')
+  await ui.unmount()
+})
