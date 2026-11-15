@@ -67,7 +67,7 @@ const session = atom(
 const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
-  shape: 'git-6',
+  shape: 'git-7',
 })
 // Las rutas absolutas que Claude editó en esta sesión, y si GIT muestra solo esas.
 const touched = atom({ plugin: 'panel-claude', key: 'touched' } as const, [], {
@@ -155,6 +155,8 @@ const PR_POLL_MS = 60_000
 const MAX_COMMITS = 6
 // Cuántos stash lista GIT; el título lleva el total real.
 const MAX_STASHES = 8
+// Cuántas ramas locales lista GIT, las de commit más reciente; el título lleva el total real.
+const MAX_BRANCHES = 8
 const TICK_MS = 5000
 // Cuánto antes de que venza el caché avisa el toast: 1 min si dura 5 min, 5 min si dura 1 h.
 const ALERT_SHORT_MS = 60_000
@@ -424,7 +426,11 @@ function stashMessage(raw: string) {
 }
 
 /** Los archivos con cambios y los últimos commits; null fuera de un repo. */
-const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null> => {
+const readGit = async (
+  $: EngineInterface,
+  cwd: string,
+  current: string | null,
+): Promise<PanelGit | null> => {
   try {
     const status = await $.process.run(
       ['git', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b'],
@@ -510,6 +516,37 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
                 message: stashMessage(rest.join(' ')),
               }
             })
+    // Las ramas locales, la de commit más reciente primero; si el comando falla, ninguna.
+    const refs = await $.process.run(
+      [
+        'git',
+        'for-each-ref',
+        '--sort=-committerdate',
+        '--format=%(refname:short)%09%(committerdate:unix)%09%(upstream:short)%09%(upstream:track)',
+        'refs/heads',
+      ],
+      { cwd, timeoutMs: 3000 },
+    )
+    const branched =
+      refs.exitCode !== 0
+        ? []
+        : refs.stdout
+            .split('\n')
+            .map(line => line.split('\t'))
+            .filter(parts => parts.length === 4 && (parts[0] ?? '') !== '')
+            .map(([name = '', time = '', upstream = '', track = '']) => {
+              const at = Number.parseInt(time, 10)
+
+              return {
+                name,
+                ...(Number.isFinite(at) ? { at } : {}),
+                isCurrent: name === current,
+                ...(upstream === '' ? {} : { upstream }),
+                ...(track.includes('gone') ? { isGone: true as const } : {}),
+                ...(/ahead (\d+)/.test(track) ? { ahead: Number(/ahead (\d+)/.exec(track)?.[1]) } : {}),
+                ...(/behind (\d+)/.test(track) ? { behind: Number(/behind (\d+)/.exec(track)?.[1]) } : {}),
+              }
+            })
     // Un repo recién creado no tiene commits: git log falla y la lista queda vacía.
     const log = await $.process.run(
       ['git', 'log', `-${MAX_COMMITS}`, '--pretty=format:%h%x09%ct%x09%s'],
@@ -556,6 +593,8 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
       unstaged,
       stashes: stashed.length,
       stashList: stashed.slice(0, MAX_STASHES),
+      branchTotal: branched.length,
+      branches: branched.slice(0, MAX_BRANCHES),
       commits,
       ...(hasUpstream
         ? {
@@ -1005,7 +1044,7 @@ const refresh = async (
         before.usd !== null && usd > before.usd ? usd - before.usd : before.turnUsd,
     }))
   }
-  const repo = branch === null ? null : await readGit($, cwd)
+  const repo = branch === null ? null : await readGit($, cwd, branch)
   await update($, git, () => repo)
   await rereadDiffs($, cwd, repo)
   // Las referencias se corren al guardar o sacar un stash: se relee el desplegado.
@@ -2215,6 +2254,39 @@ export const register: Register = (on, options) => {
           {repo !== null &&
             repo.total > 0 &&
             row('Stage', `${repo.staged} listos · ${repo.unstaged} sin stage`)}
+
+          {repo !== null && repo.branchTotal > 1 && title(`Ramas · ${repo.branchTotal}`)}
+          {(repo !== null && repo.branchTotal > 1 ? repo.branches : []).map(one => {
+            const when = one.at === undefined ? '' : ago(one.at, nowMs)
+            const ahead = one.ahead ?? 0
+            const behind = one.behind ?? 0
+
+            return (
+              <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                <Text wrap="truncate-end">
+                  <Text color={one.isCurrent ? accent : undefined} dimColor={!one.isCurrent}>
+                    {one.isCurrent ? '● ' : '○ '}
+                  </Text>
+                  {one.name}
+                  {one.isGone === true ? (
+                    <Text dimColor> remota borrada</Text>
+                  ) : one.upstream === undefined ? (
+                    <Text dimColor> sin remota</Text>
+                  ) : (
+                    (ahead > 0 || behind > 0) && <Text color="warning"> {`↑${ahead} ↓${behind}`}</Text>
+                  )}
+                </Text>
+                {when !== '' && (
+                  <Box flexShrink={0}>
+                    <Text dimColor>{when}</Text>
+                  </Box>
+                )}
+              </Box>
+            )
+          })}
+          {repo !== null && repo.branchTotal > MAX_BRANCHES && (
+            <Text dimColor>… y {repo.branchTotal - MAX_BRANCHES} más</Text>
+          )}
 
           {repo !== null &&
             pull !== null &&

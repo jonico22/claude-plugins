@@ -1,6 +1,6 @@
 {
   "name": "panel-claude",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes, tareas y sesiones anteriores",
   "author": {
     "name": "Jose Luis Yana"

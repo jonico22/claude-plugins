@@ -116,6 +116,23 @@ export type PanelGit = {
     /** El mensaje limpio: `WIP · asunto` o el que puso quien lo guardó. */
     message: string
   }[]
+  /** Cuántas ramas locales hay en total (`branches` guarda las primeras 8). */
+  branchTotal: number
+  /** Las ramas locales, la de commit más reciente primero. */
+  branches: {
+    name: string
+    /** Cuándo fue su último commit, en segundos. */
+    at?: number
+    /** Es la rama que está abierta en la sesión. */
+    isCurrent: boolean
+    /** La rama remota que sigue; ausente si no sigue ninguna. */
+    upstream?: string
+    /** Commits por subir y por bajar respecto a esa remota; ausentes si está al día. */
+    ahead?: number
+    behind?: number
+    /** Su remota ya no existe (`[gone]`). */
+    isGone?: true
+  }[]
   /** Commits por subir y por bajar; ausente si la rama no sigue a un remoto. */
   upstream?: { ahead: number; behind: number }
   /** Los commits más recientes, el último primero. */

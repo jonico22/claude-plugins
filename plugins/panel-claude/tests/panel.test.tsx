@@ -2093,3 +2093,87 @@ test('si git stash list falla, GIT se dibuja sin la sección', async ($, on) => 
   expect(await ui.find({ type: 'Text', text: /^Stash/ })).toBeUndefined()
   await ui.unmount()
 })
+
+const BRANCH_LIST = [
+  'main\t999000\torigin/main\t',
+  'arreglo\t990000\torigin/arreglo\t[ahead 2, behind 1]',
+  'idea\t980000\t\t',
+  '',
+].join('\n')
+
+/** Monta GIT con un motor falso de git donde `for-each-ref` responde la lista de ramas. */
+const branchEngine = async (
+  $: Parameters<TestBody>[0],
+  on: On,
+  branches: () => { stdout?: string; exitCode?: number },
+) => {
+  const { calls } = repoEngine(on, argv =>
+    argv.includes('status')
+      ? '## main\n M a.ts\n'
+      : argv.includes('for-each-ref')
+        ? branches()
+        : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+
+  return { ui, calls }
+}
+
+test('GIT lista las ramas con la actual marcada y su estado respecto a la remota', async ($, on) => {
+  const { ui, calls } = await branchEngine($, on, () => ({ stdout: BRANCH_LIST }))
+
+  expect(calls.find(argv => argv.includes('for-each-ref'))).toEqual([
+    'git',
+    'for-each-ref',
+    '--sort=-committerdate',
+    '--format=%(refname:short)%09%(committerdate:unix)%09%(upstream:short)%09%(upstream:track)',
+    'refs/heads',
+  ])
+  expect(await ui.find({ type: 'Text', text: /^Ramas · 3$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /↑2 ↓1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /sin remota/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('una rama con la remota borrada muestra remota borrada', async ($, on) => {
+  const { ui } = await branchEngine($, on, () => ({
+    stdout: 'main\t999000\torigin/main\t\nvieja\t990000\torigin/vieja\t[gone]\n',
+  }))
+
+  expect(await ui.find({ type: 'Text', text: /remota borrada/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('con una sola rama GIT no muestra la sección Ramas', async ($, on) => {
+  const { ui } = await branchEngine($, on, () => ({ stdout: 'main\t999000\torigin/main\t\n' }))
+
+  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Ramas/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('con más ramas que el tope, el título lleva el total y solo se listan las primeras', async ($, on) => {
+  const many = Array.from(
+    { length: 11 },
+    (_, at) => `${at === 0 ? 'main' : `rama-${at}`}\t${999000 - at}\t\t\n`,
+  ).join('')
+  const { ui } = await branchEngine($, on, () => ({ stdout: many }))
+
+  expect(await ui.find({ type: 'Text', text: /^Ramas · 11$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /rama-7/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /rama-8/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^… y 3 más$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('si git for-each-ref falla, GIT se dibuja sin la sección Ramas', async ($, on) => {
+  const { ui } = await branchEngine($, on, () => ({ exitCode: 128, stdout: BRANCH_LIST }))
+
+  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Ramas/ })).toBeUndefined()
+  await ui.unmount()
+})
