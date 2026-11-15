@@ -1697,7 +1697,9 @@ test('con más de un worktree GIT los lista y el botón abre lazygit en ese work
   const { calls } = repoEngine(on, argv =>
     argv.includes('--show-toplevel')
       ? '/tmp/demo\n'
-      : argv.includes('worktree')
+      : argv.includes('status')
+        ? argv.includes('-b') ? '## main\n' : ''
+        : argv.includes('worktree')
         ? TREES
         : argv[0] === 'sh'
           ? argv.at(-1) === 'lazygit' || argv.at(-1) === 'kitty'
@@ -1723,6 +1725,102 @@ test('con más de un worktree GIT los lista y el botón abre lazygit en ese work
 
   await ui.press({ key: 'worktree:/tmp/demo-fix' })
   expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo-fix']])
+  await ui.unmount()
+})
+
+const treesEngine = (on: On, porcelain: string, statusOf: (cwd: string | undefined) => { stdout?: string; exitCode?: number } | 'throw') => {
+  const runs: { argv: readonly string[]; cwd?: string }[] = []
+  const spawned: string[][] = []
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', (_, e) => {
+    runs.push({ argv: e.argv, cwd: e.init?.cwd })
+    const text = e.argv.join(' ')
+    if (text === 'git status --porcelain') {
+      const got = statusOf(e.init?.cwd)
+      if (got === 'throw') throw new Error('timeout')
+
+      return { value: { ...OK, ...got } }
+    }
+
+    return {
+      value: {
+        ...OK,
+        stdout: e.argv.includes('--show-toplevel')
+          ? '/tmp/demo\n'
+          : e.argv.includes('worktree')
+            ? porcelain
+            : e.argv.includes('log')
+              ? ''
+              : e.argv[0] === 'sh'
+                ? 'lazygit'
+                : '## main\n',
+      },
+    }
+  })
+  on('process.spawn', async function* (_, e) {
+    spawned.push([...e.argv])
+
+    return { value: { code: 0, signal: null } }
+  })
+
+  return { runs, spawned, toasts: toastsOf(on) }
+}
+
+const treesStatus = (runs: { argv: readonly string[]; cwd?: string }[]) =>
+  runs.filter(run => run.argv.join(' ') === 'git status --porcelain').map(run => run.cwd)
+
+test('un worktree con cambios muestra su número y el actual no lanza otro git status', async ($, on) => {
+  const { runs } = treesEngine(on, TREES, cwd => (cwd === '/tmp/demo-fix' ? { stdout: ' M a\n?? b\nA  c\n' } : { stdout: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^○ fix\/uno ±3\s+\/tmp\/demo-fix$/ })).toBeDefined()
+  // El sin cambios no muestra número.
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\)\s+\/tmp\/demo-viejo$/ })).toBeDefined()
+  expect(treesStatus(runs).includes('/tmp/demo')).toBe(false)
+  expect(treesStatus(runs)).toContain('/tmp/demo-fix')
+  await ui.unmount()
+})
+
+test('un worktree bloqueado lleva la marca bloqueado', async ($, on) => {
+  const porcelain = TREES.replace('detached\n', 'detached\nlocked razón de prueba\n')
+  treesEngine(on, porcelain, () => ({ stdout: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\) bloqueado\s+\/tmp\/demo-viejo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ fix\/uno\s+\/tmp\/demo-fix$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('un worktree prunable lleva la marca, no corre git status y al pulsarlo avisa sin abrir lazygit', async ($, on) => {
+  const porcelain = TREES.replace('detached\n', 'detached\nprunable gitdir file points to non-existent location\n')
+  const { runs, spawned, toasts } = treesEngine(on, porcelain, () => ({ stdout: '' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\) no existe\s+\/tmp\/demo-viejo$/ })).toBeDefined()
+  expect(treesStatus(runs)).not.toContain('/tmp/demo-viejo')
+
+  await ui.press({ key: 'worktree:/tmp/demo-viejo' })
+  expect(spawned).toEqual([])
+  expect(toasts.some(text => /ya no existe/.test(text))).toBe(true)
+  await ui.unmount()
+})
+
+test('si git status falla en un worktree, GIT sigue y ese worktree queda sin número', async ($, on) => {
+  treesEngine(on, TREES, cwd => (cwd === '/tmp/demo-fix' ? 'throw' : { exitCode: 128 }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^Worktrees · 3$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ fix\/uno\s+\/tmp\/demo-fix$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\)\s+\/tmp\/demo-viejo$/ })).toBeDefined()
   await ui.unmount()
 })
 

@@ -88,7 +88,17 @@ export type PanelGit = {
   /** La raíz del repo (ruta absoluta); ausente si git no la dio. */
   root?: string
   /** Los worktrees del repo, con el actual marcado; vacío si git no los listó. */
-  worktrees: { path: string; branch: string; isCurrent: boolean }[]
+  worktrees: {
+    path: string
+    branch: string
+    isCurrent: boolean
+    /** Archivos con cambios sin guardar; ausente si no se contó (sin carpeta, fallo o más allá del tope). */
+    changes?: number
+    /** Bloqueado con `git worktree lock`. */
+    isLocked?: boolean
+    /** Su carpeta ya no existe (`git worktree prune` lo limpia). */
+    isPrunable?: boolean
+  }[]
   /** Cuántos archivos tienen cambios en total (`files` guarda hasta 200). */
   total: number
   /** Cuántos tienen cambios en el índice, listos para el commit. */

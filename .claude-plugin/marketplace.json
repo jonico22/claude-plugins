@@ -1,5 +1,6 @@
 {
   "name": "jonico22-plugins",
+  "description": "Plugins para Claude Code que muestran el estado de la sesión y del repositorio en un panel junto al chat: contexto, costo, caché, límites de uso, git, pull requests, tareas y sesiones anteriores.",
   "owner": {
     "name": "Jose Luis Yana"
   },
@@ -8,7 +9,7 @@
       "name": "panel-claude",
       "source": "./plugins/panel-claude",
       "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes, tareas y sesiones anteriores",
-      "version": "0.8.1"
+      "version": "0.8.2"
     }
   ]
 }

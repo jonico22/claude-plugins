@@ -330,7 +330,7 @@ function numstatPath(raw: string) {
 /** Los worktrees de `git worktree list --porcelain`; sin líneas `worktree`, ninguno. */
 function parseWorktrees(output: string, root: string | undefined) {
   const list: PanelGit['worktrees'] = []
-  let open: { path: string; branch: string; head: string } | undefined
+  let open: { path: string; branch: string; head: string; locked: boolean; prunable: boolean } | undefined
   const close = () => {
     if (open === undefined) return
 
@@ -341,22 +341,65 @@ function parseWorktrees(output: string, root: string | undefined) {
         : open.head === ''
           ? '(sin rama)'
           : `(${open.head.slice(0, 7)})`
-    list.push({ path: open.path, branch, isCurrent: root !== undefined && open.path === root })
+    list.push({
+      path: open.path,
+      branch,
+      isCurrent: root !== undefined && open.path === root,
+      ...(open.locked ? { isLocked: true } : {}),
+      ...(open.prunable ? { isPrunable: true } : {}),
+    })
     open = undefined
   }
   for (const line of output.split('\n')) {
     if (line.startsWith('worktree ')) {
       close()
-      open = { path: line.slice('worktree '.length), branch: '', head: '' }
+      open = { path: line.slice('worktree '.length), branch: '', head: '', locked: false, prunable: false }
     } else if (open !== undefined && line.startsWith('branch ')) {
       open.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '')
     } else if (open !== undefined && line.startsWith('HEAD ')) {
       open.head = line.slice('HEAD '.length)
+    } else if (open !== undefined && (line === 'locked' || line.startsWith('locked '))) {
+      open.locked = true
+    } else if (open !== undefined && (line === 'prunable' || line.startsWith('prunable '))) {
+      open.prunable = true
     }
   }
   close()
 
   return list
+}
+
+// Cada worktree extra cuesta un `git status` en cada relectura: solo los primeros.
+const MAX_TREE_STATUS = 8
+
+/**
+ * Cuántos archivos con cambios tiene cada worktree, en el mismo orden; el actual
+ * reutiliza `currentTotal`. Sin número (undefined) los que ya no existen, los que
+ * pasan del tope y los que fallan o tardan: nunca rompe la relectura.
+ */
+async function readTreeChanges(
+  $: EngineInterface,
+  trees: PanelGit['worktrees'],
+  currentTotal: number,
+) {
+  return Promise.all(
+    trees.map(async (tree, at): Promise<number | undefined> => {
+      if (tree.isCurrent) return currentTotal
+      if (tree.isPrunable === true || at >= MAX_TREE_STATUS) return undefined
+      try {
+        const done = await $.process.run(['git', 'status', '--porcelain'], {
+          cwd: tree.path,
+          timeoutMs: 2000,
+        })
+
+        return done.exitCode === 0
+          ? done.stdout.split('\n').filter(line => line.trim() !== '').length
+          : undefined
+      } catch {
+        return undefined
+      }
+    }),
+  )
 }
 
 /** Los archivos con cambios y los últimos commits; null fuera de un repo. */
@@ -420,7 +463,11 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
       cwd,
       timeoutMs: 3000,
     })
-    const worktrees = trees.exitCode === 0 ? parseWorktrees(trees.stdout, root) : []
+    const listed = trees.exitCode === 0 ? parseWorktrees(trees.stdout, root) : []
+    const changes = await readTreeChanges($, listed, files.length)
+    const worktrees = listed.map((tree, at) =>
+      changes[at] === undefined ? tree : { ...tree, changes: changes[at] },
+    )
     // Sin stash guardado el comando falla: cuenta como cero.
     const stash = await $.process.run(
       ['git', 'rev-list', '--walk-reflogs', '--count', 'refs/stash'],
@@ -2153,19 +2200,28 @@ export const register: Register = (on, options) => {
 
           {repo !== null && repo.worktrees.length > 1 && title(`Worktrees · ${repo.worktrees.length}`)}
           {(repo !== null && repo.worktrees.length > 1 ? repo.worktrees : []).map(tree => {
-            const room = Math.max(4, inner - 2 - tree.branch.length - 1)
+            const dirty = tree.changes !== undefined && tree.changes > 0 ? `±${tree.changes}` : ''
+            const mark = tree.isPrunable === true ? 'no existe' : tree.isLocked === true ? 'bloqueado' : ''
+            const extra = (dirty === '' ? 0 : dirty.length + 1) + (mark === '' ? 0 : mark.length + 1)
+            const room = Math.max(4, inner - 2 - tree.branch.length - 1 - extra)
 
             return (
               <Button
                 key={`worktree:${tree.path}`}
                 plain
-                onPress={() => openLazygit($, chosenTerminal, tree.path)}
+                onPress={() =>
+                  tree.isPrunable === true
+                    ? $.ui.toast('Ese worktree ya no existe en disco: git worktree prune lo limpia.')
+                    : openLazygit($, chosenTerminal, tree.path)
+                }
               >
                 <Text wrap="truncate-end">
                   <Text color={tree.isCurrent ? accent : undefined} dimColor={!tree.isCurrent}>
                     {tree.isCurrent ? '● ' : '○ '}
                   </Text>
                   {tree.branch}
+                  {dirty !== '' && <Text color="warning"> {dirty}</Text>}
+                  {mark !== '' && <Text dimColor> {mark}</Text>}
                   <Text dimColor> {fitPath(tree.path, room).padStart(room)}</Text>
                 </Text>
               </Button>
