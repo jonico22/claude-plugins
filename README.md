@@ -1,188 +1,279 @@
 # claude-plugins
 
-Mi marketplace personal de plugins para Claude Code.
+**English** · [Español](docs/README.es.md)
 
-Así se ve `panel-claude` al abrir Claude Code: el panel queda a la derecha de la conversación.
+My personal marketplace of plugins for Claude Code.
 
-<img src="docs/img/panel-inicio.png" alt="Claude Code recién abierto con panel-claude a la derecha, en la pestaña MAIN" width="820">
+Note: the panel's interface is in Spanish. Tab, section and button names are kept as they appear on screen, with a short English gloss the first time they show up.
 
-El detalle de cada una de sus cuatro pestañas:
+This is how `panel-shell` looks when you open Claude Code: the panel sits to the right of the conversation.
+
+<img src="docs/img/panel-inicio.png" alt="Claude Code just opened with panel-shell on the right, on the MAIN tab" width="820">
+
+The detail of each of its four tabs:
 
 <table>
   <tr><th>MAIN</th><th>GIT</th><th>TAREAS</th><th>SESIONES</th></tr>
   <tr>
-    <td valign="top"><img src="docs/img/panel-main.png" alt="Pestaña MAIN: estado de la sesión, contexto, caché, límites, MCP y cambios" width="200"></td>
-    <td valign="top"><img src="docs/img/panel-git.png" alt="Pestaña GIT: repositorio, pull request, acciones, cambios y commits" width="200"></td>
-    <td valign="top"><img src="docs/img/panel-tareas.png" alt="Pestaña TAREAS: subagentes y lista de tareas" width="200"></td>
-    <td valign="top"><img src="docs/img/panel-sesiones.png" alt="Pestaña SESIONES: sesiones recientes con su filtro" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-main.png" alt="MAIN tab: session status, context, cache, limits, MCP and changes" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-git.png" alt="GIT tab: repository, pull request, actions, changes and commits" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-tareas.png" alt="TAREAS tab: subagents and task list" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-sesiones.png" alt="SESIONES tab: recent sessions with their filter" width="200"></td>
   </tr>
 </table>
 
-## Instalar
+## Install
 
-### Opción A: en un solo paso
+### Option A: in one step
 
-Desde la shell:
-
-```bash
-claude plugin install panel-claude --marketplace jonico22/claude-plugins
-```
-
-Si el marketplace todavía no está añadido, este comando lo añade primero (en la configuración de usuario) y después instala el plugin.
-
-También puedes hacerlo desde el prompt de una sesión de Claude Code:
-
-```
-/plugin install panel-claude --marketplace jonico22/claude-plugins
-```
-
-Responde `y` para añadir el marketplace y elige el alcance.
-
-### Opción B: en dos pasos
+From the shell:
 
 ```bash
-# 1. Añadir el marketplace (se registra con el nombre jonico22-plugins)
+claude plugin install panel-shell --marketplace jonico22/claude-plugins
+```
+
+If the marketplace isn't added yet, this command adds it first (in the user settings) and then installs the plugin.
+
+You can also do it from the prompt of a Claude Code session:
+
+```
+/plugin install panel-shell --marketplace jonico22/claude-plugins
+```
+
+Answer `y` to add the marketplace and pick the scope.
+
+### Option B: in two steps
+
+```bash
+# 1. Add the marketplace (it is registered as jonico22-plugins)
 claude plugin marketplace add jonico22/claude-plugins
 
-# 2. Instalar el plugin desde ese marketplace
-claude plugin install panel-claude@jonico22-plugins
+# 2. Install the plugin from that marketplace
+claude plugin install panel-shell@jonico22-plugins
 ```
 
-### Alcance
+### Scope
 
-Por defecto se instala con alcance `user`, así que lo tienes en todas tus sesiones. Para limitarlo a un proyecto, usa `--scope`:
+By default it installs with `user` scope, so you get it in all your sessions. To limit it to one project, use `--scope`:
 
-| Alcance | Dónde aplica |
+| Scope | Where it applies |
 |---|---|
-| `user` (por defecto) | Todas tus sesiones |
-| `project` | Este proyecto; se guarda en la configuración del repo y se comparte con el equipo |
-| `local` | Este proyecto, solo en tu máquina |
+| `user` (default) | All your sessions |
+| `project` | This project; it is saved in the repo settings and shared with the team |
+| `local` | This project, only on your machine |
 
 ```bash
-claude plugin install panel-claude@jonico22-plugins --scope project
+claude plugin install panel-shell@jonico22-plugins --scope project
 ```
 
-### Configurar al instalar
+### Configure on install
 
-Puedes fijar las opciones del plugin al instalarlo:
+You can set the plugin options when you install it:
 
 ```bash
-claude plugin install panel-claude@jonico22-plugins --config color=morado
+claude plugin install panel-shell@jonico22-plugins --config color=morado
 ```
 
-O después, con `/config` dentro de Claude Code o con `claude plugin configure panel-claude`.
+Or later, with `/config` inside Claude Code or with `claude plugin configure panel-shell`.
 
-### Comprobar la instalación
+### Check the installation
 
 ```bash
-claude plugin list               # plugins instalados
-claude plugin marketplace list   # marketplaces añadidos
+claude plugin list               # installed plugins
+claude plugin marketplace list   # added marketplaces
 ```
 
-Reinicia Claude Code para que cargue el plugin. El panel queda acoplado al lado del chat con el terminal en pantalla completa y al menos 110 columnas de ancho; si no, se abre encima del prompt.
+Restart Claude Code so it loads the plugin. The panel docks beside the chat when the terminal is full screen and at least 110 columns wide; otherwise it opens above the prompt.
 
-### Probar en local (sin instalar)
+### Try it locally (without installing)
 
-Desde una copia del repositorio:
+From a copy of the repository:
 
 ```bash
-claude --plugin-dir plugins/panel-claude
+claude --plugin-dir plugins/panel-shell
 ```
 
-## Actualizar
+## Update
 
-Cuando haya una versión nueva del plugin:
+When there is a new version of the plugin:
 
 ```bash
-# 1. Traer la lista de plugins más reciente del marketplace
+# 1. Fetch the latest plugin list from the marketplace
 claude plugin marketplace update jonico22-plugins
 
-# 2. Actualizar el plugin a la última versión
-claude plugin update panel-claude@jonico22-plugins
+# 2. Update the plugin to the latest version
+claude plugin update panel-shell@jonico22-plugins
 ```
 
-Después **reinicia Claude Code** para que use la versión nueva. Con `claude plugin list` puedes ver qué versión tienes instalada.
+Then **restart Claude Code** so it uses the new version. With `claude plugin list` you can see which version you have installed.
 
-Si lo instalaste con un alcance distinto de `user`, indícalo: `claude plugin update panel-claude@jonico22-plugins --scope project`.
+If you installed it with a scope other than `user`, say so: `claude plugin update panel-shell@jonico22-plugins --scope project`.
 
-`claude plugin marketplace update` sin nombre actualiza todos tus marketplaces.
+`claude plugin marketplace update` without a name updates all your marketplaces.
 
-## Desinstalar
+**Coming from `panel-claude`?** The plugin was called `panel-claude` up to 0.11.0. To move to the new name, uninstall the old one, update the marketplace and install `panel-shell`; the options you set in `/config` have to be set again:
 
 ```bash
 claude plugin uninstall panel-claude@jonico22-plugins
-# opcional: quitar también el marketplace
+claude plugin marketplace update jonico22-plugins
+claude plugin install panel-shell@jonico22-plugins
+```
+
+## Uninstall
+
+```bash
+claude plugin uninstall panel-shell@jonico22-plugins
+# optional: also remove the marketplace
 claude plugin marketplace remove jonico22-plugins
 ```
 
-Para apagarlo sin desinstalarlo: `claude plugin disable panel-claude@jonico22-plugins` (y `enable` para volver a activarlo).
+To turn it off without uninstalling: `claude plugin disable panel-shell@jonico22-plugins` (and `enable` to turn it back on).
 
 ## Plugins
 
-| Plugin | Qué trae |
+| Plugin | What it brings |
 |---|---|
-| `panel-claude` | Panel lateral con cuatro pestañas (`1` MAIN, `2` GIT, `3` TAREAS, `4` SESIONES). **MAIN:** carpeta, rama, modelo y duración de la sesión; contexto con barra, tokens y costo (con el del último turno); caché con cuenta regresiva, barra que pasa a naranja al 70 % y roja al 90 %, porcentaje leído del caché y aviso en un toast antes de que venza; límites de uso; servidores MCP (los que dejan de aportar herramientas salen en rojo); archivos con cambios y un resumen de subagentes y tareas; botón Compact; la fila Modo (normal, plan, sin permisos...) con el modo de permisos, leído de la transcripción de la sesión, así que va un turno atrasado si lo cambias con shift+tab. La fila Esfuerzo (bajo, medio, alto...) sale igual de la transcripción: aparece tras la primera respuesta y va un turno atrasada si lo cambias con `/effort`. **GIT:** rama, commits por subir y bajar, stage, stash, archivos (los renombrados salen con su ruta nueva) con `+líneas −líneas` agrupados en stage, sin stage y sin seguimiento (todos, con scroll; pulsa un archivo para ver un resumen de su diff y `d` o el botón `Ver diff` para abrir el diff completo en una ventana aparte, con delta si lo tienes), últimos commits con su hora, sección Acciones con `Obtener ramas` (`git fetch`, `f`), `Ver diff` (`d`) y `Abrir lazygit` (`l`), que abre [lazygit](https://github.com/jesseduffield/lazygit) en una ventana de terminal nueva (o en un popup dentro de tmux). Si hay más de una rama local, la sección Ramas las lista por commit más reciente (las primeras 8) con cuánto van por delante o por detrás de su remota. Los archivos que Claude editó en la sesión llevan una marca ✦, el título de Cambios cuenta `N de Claude` y el botón `Solo de Claude` (`o`) filtra la lista a esos. La sección Pull request (necesita [`gh`](https://cli.github.com/) con sesión iniciada; sin él no sale) muestra el PR de la rama, su estado, los checks de CI con los fallidos y pendientes por nombre y el botón `Abrir PR` (`p`); avisa con un toast cuando los checks terminan y se relee al entrar a GIT, tras `Obtener ramas`, tras un `git push` o `gh pr` de Claude y cada minuto mientras haya checks pendientes. Si el repo tiene varios worktrees, la sección Worktrees los lista con `±N` (archivos con cambios sin guardar, solo los primeros 8 y solo si N > 0), `bloqueado` si están bloqueados y `no existe` si su carpeta ya no está; pulsar uno abre lazygit ahí, salvo los que ya no existen, que solo avisan con un toast, y mientras haya alguno el botón `Limpiar` (`w`) ejecuta `git worktree prune`. La sección Stash lista los guardados con su mensaje y hace cuánto se hicieron (los primeros 8); pulsa uno para ver un resumen de los archivos que contiene. Git se relee tras cada edición de Claude. **TAREAS:** subagentes con duración y tokens, y la lista de tareas completa. **SESIONES:** las últimas sesiones de Claude Code en esta carpeta, con su título y hace cuánto se usaron; pulsa una para ver su último prompt, costo, duración y líneas cambiadas, `s` (`Resumir`) para pedir un resumen de 2 o 3 frases al modelo rápido (una llamada pequeña que suma al costo; el resumen queda guardado) y `r` (`Reanudar`) para abrirla con `claude --resume` en una ventana aparte. El campo de arriba filtra por título, último prompt o resumen, sin distinguir mayúsculas ni acentos, y busca entre las 30 sesiones más recientes aunque solo se dibujen 12; `x` (`Borrar filtro`) lo borra. Se abre solo al iniciar; `/panel` lo abre y `/panel cerrar` lo cierra. En `/config` eliges el color, la duración del caché (por defecto la lee de `promptCacheTtl`), el aviso de vencimiento, la terminal de las ventanas (lazygit, `Ver diff` y `Reanudar`), qué secciones de MAIN se muestran y si GIT muestra el Pull request (`showPr`). |
+| `panel-shell` | Side panel with four tabs (`1` MAIN, `2` GIT, `3` TAREAS (tasks), `4` SESIONES (sessions)) that shows the state of the session and the repository next to the chat. [What each tab shows](#what-panel-shell-shows). |
 
-### Comandos y atajos de panel-claude
+### What panel-shell shows
 
-Comandos:
+#### MAIN
 
-| Comando | Qué hace |
+- **Sesión** (session): folder, branch, model and session duration.
+- **Contexto** (context): bar, tokens and cost, with the cost of the last turn.
+- **Caché** (cache): countdown and a bar that turns orange at 70% and red at 90%. It shows the percentage read from the cache. It warns you with a toast before it expires.
+- **Límites de uso** (usage limits).
+- **Servidores MCP** (MCP servers): the ones that stop providing tools show in red.
+- **Cambios** (changes): the files with changes.
+- **Subagentes y tareas** (subagents and tasks): a summary of both.
+- **Compact:** button to compact the context.
+- **Modo** (mode; normal, plan, no permissions...): this is the permission mode. It is read from the session transcript, so it runs one turn behind if you change it with shift+tab.
+- **Esfuerzo** (effort; low, medium, high...): it also comes from the transcript. It appears after the first reply and runs one turn behind if you change it with `/effort`.
+
+#### GIT
+
+Repository and branch:
+
+- **Estado** (status): the branch, the commits to push and pull, the stage and the stash.
+- **Git is re-read** after every Claude edit.
+
+Cambios (changes):
+
+- **Files:** renamed files show with their new path. Each one has `+lines −lines`. They are grouped into staged, unstaged and untracked (all of them, with scroll).
+- **Diff summary:** click a file to see it. `d` or the `Ver diff` (view diff) button opens the full diff in a separate window, with delta if you have it.
+- **Claude's files:** the ones Claude edited in the session carry a ✦ mark. The Cambios title counts `N de Claude` (N by Claude). The `Solo de Claude` (only Claude's) button (`o`) filters the list to those.
+
+Commits:
+
+- The latest commits with their time.
+
+Acciones (actions):
+
+- **`Obtener ramas`** (fetch branches; `git fetch`, `f`).
+- **`Ver diff`** (`d`).
+- **`Abrir lazygit`** (open lazygit; `l`): opens [lazygit](https://github.com/jesseduffield/lazygit) in a new terminal window (or in a popup inside tmux).
+
+Ramas (branches):
+
+- If there is more than one local branch, it lists them by most recent commit (the first 8) with how far ahead of or behind their remote they are.
+
+Pull request:
+
+- **Requirement:** it needs [`gh`](https://cli.github.com/) with an active login; without it, the section doesn't show.
+- **What it shows:** the branch's PR, its status, the CI checks with the failed and pending ones by name, and the `Abrir PR` (open PR) button (`p`).
+- **Warnings and re-reads:** it warns you with a toast when the checks finish. It is re-read when you enter GIT, after `Obtener ramas`, after a `git push` or `gh pr` by Claude, and every minute while there are pending checks.
+
+Worktrees:
+
+- **List:** if the repo has several, it lists them with `±N` (files with unsaved changes, only the first 8 and only if N > 0), `bloqueado` (locked) if they are locked and `no existe` (does not exist) if their folder is gone.
+- **Open one:** clicking it opens lazygit there. The ones that no longer exist only show a toast.
+- **`Limpiar`** (clean up; `w`): runs `git worktree prune`. It only shows while some worktree no longer exists.
+
+Stash:
+
+- Lists the stashes with their message and how long ago they were made (the first 8). Click one to see a summary of the files it contains.
+
+#### TAREAS
+
+- **Subagentes** (subagents): with duration and tokens.
+- **Tareas** (tasks): the full list.
+
+#### SESIONES
+
+- **Sesiones recientes** (recent sessions): the latest Claude Code sessions in this folder, with their title and how long ago they were used.
+- **Detail:** click one to see its last prompt, cost, duration and changed lines.
+- **`Resumir`** (summarize; `s`): asks the fast model for a 2 or 3 sentence summary. It is a small call that adds to the cost. The summary is saved.
+- **`Reanudar`** (resume; `r`): opens the session with `claude --resume` in a separate window.
+- **Filter:** the field at the top filters by title, last prompt or summary, ignoring case and accents. It searches the 30 most recent sessions even though only 12 are drawn.
+- **`Borrar filtro`** (clear filter; `x`): clears it.
+
+#### Open and configure
+
+- **On start:** the panel opens by itself.
+- **Commands:** `/panel` opens it and `/panel cerrar` closes it. There is more detail in [Commands and shortcuts](#commands-and-shortcuts-of-panel-shell).
+- **`/config`:** there you choose the color, the cache duration (by default it reads it from `promptCacheTtl`), the expiry warning, the terminal for the windows (lazygit, `Ver diff` and `Reanudar`), which MAIN sections are shown and whether GIT shows the Pull request (`showPr`). Other ways to set them are in [Configure on install](#configure-on-install).
+
+### Commands and shortcuts of panel-shell
+
+Commands:
+
+| Command | What it does |
 |---|---|
-| `/panel` | Abre el panel. |
-| `/panel cerrar` | Lo cierra. También valen `/panel close` y `/panel off`. |
+| `/panel` | Opens the panel. |
+| `/panel cerrar` | Closes it. `/panel close` and `/panel off` also work. |
 
-Atajos de teclado. Cada uno es la tecla del botón con el mismo nombre:
+Keyboard shortcuts. Each one is the key of the button with the same name:
 
-| Tecla | Dónde funciona | Botón | Qué hace |
+| Key | Where it works | Button | What it does |
 |---|---|---|---|
-| `1` | Cualquier pestaña | MAIN | Va a la pestaña MAIN. |
-| `2` | Cualquier pestaña | GIT | Va a la pestaña GIT y relee el PR. |
-| `3` | Cualquier pestaña | TAREAS | Va a la pestaña TAREAS. |
-| `4` | Cualquier pestaña | SESIONES | Va a la pestaña SESIONES y relee la lista. |
-| `c` | MAIN, título Contexto | Compact | Compacta el contexto de la sesión. |
-| `o` | GIT, título Cambios | Solo de Claude / Todos | Filtra la lista a los archivos que editó Claude, o la muestra entera. Solo sale si Claude editó alguno. |
-| `p` | GIT, sección Pull request | Abrir PR | Abre el PR de la rama. Solo sale si la rama tiene PR. |
-| `f` | GIT, sección Acciones | Obtener ramas | Ejecuta `git fetch`. |
-| `d` | GIT, sección Acciones | Ver diff | Abre el diff completo en una ventana aparte. |
-| `l` | GIT, sección Acciones | Abrir lazygit | Abre lazygit en una ventana de terminal nueva. |
-| `w` | GIT, sección Worktrees | Limpiar | Ejecuta `git worktree prune`. Solo sale si algún worktree ya no existe. |
-| `u` | SESIONES | Actualizar | Relee la lista de sesiones. |
-| `x` | SESIONES | Borrar filtro | Borra el texto del filtro. Solo sale si hay un filtro escrito. |
-| `s` | SESIONES, sesión abierta | Resumir / Resumir de nuevo | Pide un resumen de la sesión al modelo rápido. |
-| `r` | SESIONES, sesión abierta | Reanudar | Abre la sesión con `claude --resume` en una ventana aparte. Solo sale si no es la sesión actual. |
+| `1` | Any tab | MAIN | Goes to the MAIN tab. |
+| `2` | Any tab | GIT | Goes to the GIT tab and re-reads the PR. |
+| `3` | Any tab | TAREAS | Goes to the TAREAS tab. |
+| `4` | Any tab | SESIONES | Goes to the SESIONES tab and re-reads the list. |
+| `c` | MAIN, Contexto title | Compact | Compacts the session context. |
+| `o` | GIT, Cambios title | Solo de Claude / Todos (all) | Filters the list to the files Claude edited, or shows the whole list. It only shows if Claude edited any. |
+| `p` | GIT, Pull request section | Abrir PR | Opens the branch's PR. It only shows if the branch has a PR. |
+| `f` | GIT, Acciones section | Obtener ramas | Runs `git fetch`. |
+| `d` | GIT, Acciones section | Ver diff | Opens the full diff in a separate window. |
+| `l` | GIT, Acciones section | Abrir lazygit | Opens lazygit in a new terminal window. |
+| `w` | GIT, Worktrees section | Limpiar | Runs `git worktree prune`. It only shows if some worktree no longer exists. |
+| `u` | SESIONES | Actualizar (refresh) | Re-reads the session list. |
+| `x` | SESIONES | Borrar filtro | Clears the filter text. It only shows if a filter is typed. |
+| `s` | SESIONES, open session | Resumir / Resumir de nuevo (summarize again) | Asks the fast model for a summary of the session. |
+| `r` | SESIONES, open session | Reanudar | Opens the session with `claude --resume` in a separate window. It only shows if it isn't the current session. |
 
-## Estructura
+## Structure
 
 ```
-.claude-plugin/marketplace.json   lista de plugins
-docs/img/                         capturas del README
-plugins/<nombre>/
-  .claude-plugin/plugin.json      nombre, versión, descripción
-  hooks/hooks.json                nombra el módulo de hooks
-  hooks/register.tsx              el código del plugin
-  types/index.d.ts                los datos que guarda el plugin
-  tests/                          pruebas (claude plugin test <carpeta>)
+.claude-plugin/marketplace.json   plugin list
+docs/img/                         README screenshots
+docs/README.es.md                 Spanish version of this README
+plugins/<name>/
+  .claude-plugin/plugin.json      name, version, description
+  hooks/hooks.json                names the hooks module
+  hooks/register.tsx              the plugin's code
+  types/index.d.ts                the data the plugin stores
+  tests/                          tests (claude plugin test <folder>)
 ```
 
-## Publicar una versión nueva (para el mantenedor)
+## Publish a new version (for the maintainer)
 
-1. Sube `version` en `plugins/<nombre>/.claude-plugin/plugin.json` **y** en `.claude-plugin/marketplace.json`. Tienen que coincidir.
-2. Valida los manifiestos:
+1. Bump `version` in `plugins/<name>/.claude-plugin/plugin.json` **and** in `.claude-plugin/marketplace.json`. They have to match.
+2. Validate the manifests:
    ```bash
    claude plugin validate .
    ```
-3. Haz commit y crea la etiqueta. `claude plugin tag` comprueba que las dos versiones coinciden y crea la etiqueta `<nombre>--v<versión>` (por ejemplo `panel-claude--v0.2.0`):
+3. Commit and create the tag. `claude plugin tag` checks that both versions match and creates the tag `<name>--v<version>` (for example `panel-shell--v0.2.0`):
    ```bash
-   git commit -am "panel-claude 0.2.0"
-   claude plugin tag plugins/panel-claude
+   git commit -am "panel-shell 0.2.0"
+   claude plugin tag plugins/panel-shell
    git push && git push --tags
    ```
-4. Los usuarios la reciben siguiendo los pasos de [Actualizar](#actualizar).
+4. Users get it by following the steps in [Update](#update).
 
-## Requisitos
+## Requirements
 
-- Claude Code 2.1.322 o más nuevo. El plugin usa una API en acceso anticipado que puede cambiar entre versiones.
-- `git`, para la rama, los cambios y los worktrees.
-- `lazygit` (opcional), para el botón `Abrir lazygit` y para abrir un worktree.
-- `gh` (opcional), para la sección Pull request y sus checks en la pestaña GIT.
+- Claude Code 2.1.322 or newer. The plugin uses an early-access API that may change between versions.
+- `git`, for the branch, the changes and the worktrees.
+- `lazygit` (optional), for the `Abrir lazygit` button and to open a worktree.
+- `gh` (optional), for the Pull request section and its checks in the GIT tab.

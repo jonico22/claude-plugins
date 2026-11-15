@@ -17,7 +17,7 @@ import type {
   PanelTotals,
 } from '../types'
 
-const PANE = 'panel-claude'
+const PANE = 'panel-shell'
 const TITLE = 'Panel'
 // Qué parte del ancho del terminal pide el panel acoplado. Si arrastras el
 // borde del panel para cambiarle el tamaño, gana tu tamaño.
@@ -28,91 +28,91 @@ const START_COLUMNS = 36
 
 // Cambia la etiqueta `shape` cuando cambien los campos: así el código nuevo
 // descarta lo que una versión anterior guardó (el estado sobrevive a una recarga).
-const info = atom({ plugin: 'panel-claude', key: 'info' } as const, null, {
+const info = atom({ plugin: 'panel-shell', key: 'info' } as const, null, {
   shape: 'info-2',
 })
 const totals = atom(
-  { plugin: 'panel-claude', key: 'totals' } as const,
+  { plugin: 'panel-shell', key: 'totals' } as const,
   { tokensIn: 0, tokensOut: 0 },
   { shape: 'totals-1' },
 )
 
-const agents = atom({ plugin: 'panel-claude', key: 'agents' } as const, [], {
+const agents = atom({ plugin: 'panel-shell', key: 'agents' } as const, [], {
   shape: 'agents-2',
 })
-const todos = atom({ plugin: 'panel-claude', key: 'todos' } as const, [], {
+const todos = atom({ plugin: 'panel-shell', key: 'todos' } as const, [], {
   shape: 'todos-1',
 })
 
 // Cuándo llegó la última respuesta: el caché del prompt dura desde ahí.
 // `isAlerted` guarda que el aviso de vencimiento ya salió para esa respuesta.
 const cache = atom(
-  { plugin: 'panel-claude', key: 'cache' } as const,
+  { plugin: 'panel-shell', key: 'cache' } as const,
   { at: null, isAlerted: false },
   { shape: 'cache-2' },
 )
 // Lo leído del caché frente a toda la entrada de los turnos del hilo principal.
 const cacheStats = atom(
-  { plugin: 'panel-claude', key: 'cacheStats' } as const,
+  { plugin: 'panel-shell', key: 'cacheStats' } as const,
   { read: 0, input: 0 },
   { shape: 'cacheStats-1' },
 )
 // Desde cuándo corre la sesión y el costo: total medido y lo que subió en el último turno.
 const session = atom(
-  { plugin: 'panel-claude', key: 'session' } as const,
+  { plugin: 'panel-shell', key: 'session' } as const,
   { startedAt: null, usd: null, turnUsd: null },
   { shape: 'session-1' },
 )
 // La hora del reloj del panel; cada cambio redibuja las cuentas regresivas.
-const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
+const clock = atom({ plugin: 'panel-shell', key: 'now' } as const, 0)
 
-const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
+const git = atom({ plugin: 'panel-shell', key: 'git' } as const, null, {
   shape: 'git-7',
 })
 // Las rutas absolutas que Claude editó en esta sesión, y si GIT muestra solo esas.
-const touched = atom({ plugin: 'panel-claude', key: 'touched' } as const, [], {
+const touched = atom({ plugin: 'panel-shell', key: 'touched' } as const, [], {
   shape: 'touched-1',
 })
-const onlyTouched = atom({ plugin: 'panel-claude', key: 'onlyTouched' } as const, false)
+const onlyTouched = atom({ plugin: 'panel-shell', key: 'onlyTouched' } as const, false)
 // El PR de la rama: null si no se sabe (sin `gh`), 'none' si la rama no tiene.
-const pr = atom({ plugin: 'panel-claude', key: 'pr' } as const, null, {
+const pr = atom({ plugin: 'panel-shell', key: 'pr' } as const, null, {
   shape: 'pr-1',
 })
 // El modo de permisos, leído de la transcripción; null si no se sabe.
-const mode = atom({ plugin: 'panel-claude', key: 'mode' } as const, null)
+const mode = atom({ plugin: 'panel-shell', key: 'mode' } as const, null)
 // El nivel de esfuerzo, leído de la transcripción; null si no se sabe.
-const effort = atom({ plugin: 'panel-claude', key: 'effort' } as const, null)
+const effort = atom({ plugin: 'panel-shell', key: 'effort' } as const, null)
 // Los servidores MCP vistos en la sesión, aunque ya no aporten herramientas.
-const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
+const mcp = atom({ plugin: 'panel-shell', key: 'mcp' } as const, [], {
   shape: 'mcp-2',
 })
-const tab = atom({ plugin: 'panel-claude', key: 'tab' } as const, 'main')
+const tab = atom({ plugin: 'panel-shell', key: 'tab' } as const, 'main')
 // Los archivos desplegados de la pestaña GIT, como `grupo:ruta`, el último al
 // final, y su diff resumido por esa misma clave.
-const expanded = atom({ plugin: 'panel-claude', key: 'expanded' } as const, [], {
+const expanded = atom({ plugin: 'panel-shell', key: 'expanded' } as const, [], {
   shape: 'expanded-1',
 })
-const diffs = atom({ plugin: 'panel-claude', key: 'diffs' } as const, {}, {
+const diffs = atom({ plugin: 'panel-shell', key: 'diffs' } as const, {}, {
   shape: 'diffs-1',
 })
 
 // El stash desplegado en GIT, por su referencia (`stash@{0}`), y el resumen de
 // sus archivos, leído al desplegarlo.
-const openStash = atom({ plugin: 'panel-claude', key: 'openStash' } as const, null)
-const stashStat = atom({ plugin: 'panel-claude', key: 'stashStat' } as const, {}, {
+const openStash = atom({ plugin: 'panel-shell', key: 'openStash' } as const, null)
+const stashStat = atom({ plugin: 'panel-shell', key: 'stashStat' } as const, {}, {
   shape: 'stashStat-1',
 })
 
 // Las sesiones guardadas de esta carpeta; null hasta que se abre la pestaña.
-const sessions = atom({ plugin: 'panel-claude', key: 'sessions' } as const, null, {
+const sessions = atom({ plugin: 'panel-shell', key: 'sessions' } as const, null, {
   shape: 'sessions-2',
 })
 // Lo que se escribió en el filtro de SESIONES; vacío si no hay filtro.
-const sessionQuery = atom({ plugin: 'panel-claude', key: 'sessionQuery' } as const, '')
+const sessionQuery = atom({ plugin: 'panel-shell', key: 'sessionQuery' } as const, '')
 // La sesión desplegada en SESIONES, por su id.
-const openSession = atom({ plugin: 'panel-claude', key: 'openSession' } as const, null)
+const openSession = atom({ plugin: 'panel-shell', key: 'openSession' } as const, null)
 // El resumen de cada sesión, por su id; se guardan también en `$.store`.
-const summaries = atom({ plugin: 'panel-claude', key: 'summaries' } as const, {}, {
+const summaries = atom({ plugin: 'panel-shell', key: 'summaries' } as const, {}, {
   shape: 'summaries-1',
 })
 

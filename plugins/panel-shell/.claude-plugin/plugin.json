@@ -1,0 +1,120 @@
+{
+  "name": "panel-shell",
+  "version": "0.12.0",
+  "description": "Panel for Claude Code: folder, git with lazygit, context, cache, limits, MCP, subagents, tasks and past sessions",
+  "author": {
+    "name": "Jose Luis Yana"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cache": {
+      "type": "string",
+      "title": "Cache duration",
+      "description": "How long the prompt cache lasts; the panel counts down from the last response. \"auto\" reads it from promptCacheTtl in your Claude Code settings.",
+      "options": [
+        "auto",
+        "5m",
+        "1h"
+      ],
+      "default": "auto"
+    },
+    "cacheAlert": {
+      "type": "string",
+      "title": "Cache alert",
+      "description": "Shows a warning when the cache has 1 minute left (if it lasts 5m) or 5 minutes left (if it lasts 1h), once per response.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "color": {
+      "type": "string",
+      "title": "Panel color",
+      "description": "The color of the panel frame and titles.",
+      "options": [
+        "celeste",
+        "morado",
+        "naranja",
+        "verde",
+        "azul"
+      ],
+      "default": "celeste"
+    },
+    "terminal": {
+      "type": "string",
+      "title": "Terminal for windows",
+      "description": "Which terminal opens lazygit, Ver diff and Reanudar. \"auto\" uses $TERMINAL or the first one installed; inside tmux they always open in a popup.",
+      "options": [
+        "auto",
+        "ghostty",
+        "kitty",
+        "wezterm",
+        "alacritty",
+        "foot",
+        "gnome-terminal",
+        "konsole",
+        "xterm",
+        "x-terminal-emulator"
+      ],
+      "default": "auto"
+    },
+    "showLimits": {
+      "type": "string",
+      "title": "Show Límites",
+      "description": "Shows the Límites section on the MAIN tab.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "showMcp": {
+      "type": "string",
+      "title": "Show MCP",
+      "description": "Shows the MCP section on the MAIN tab.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "showPr": {
+      "type": "string",
+      "title": "Show Pull request",
+      "description": "Shows the Pull request section (and its CI checks) on the GIT tab. Needs gh installed and signed in.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "showChanges": {
+      "type": "string",
+      "title": "Show Cambios",
+      "description": "Shows the Cambios section on the MAIN tab. The GIT tab always shows Cambios.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    }
+  },
+  "homepage": "https://github.com/jonico22/claude-plugins#readme",
+  "repository": "https://github.com/jonico22/claude-plugins",
+  "license": "MIT",
+  "keywords": [
+    "panel",
+    "status",
+    "context",
+    "cost",
+    "cache",
+    "usage-limits",
+    "git",
+    "lazygit",
+    "pull-request",
+    "tasks",
+    "sessions"
+  ],
+  "icon": "./.claude-plugin/icon.png"
+}

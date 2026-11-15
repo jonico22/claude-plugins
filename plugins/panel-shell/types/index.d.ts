@@ -204,7 +204,7 @@ export type PanelTodo = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'panel-claude': {
+    'panel-shell': {
       info: Shaped<PanelInfo | null>
       totals: Shaped<PanelTotals>
       agents: Shaped<PanelAgent[]>

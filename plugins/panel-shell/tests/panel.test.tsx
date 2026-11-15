@@ -4,9 +4,9 @@ import type { TestBody } from 'claude-code/testing'
 type On = Parameters<TestBody>[1]
 
 const PANE = {
-  plugin: 'panel-claude',
+  plugin: 'panel-shell',
   component: 'Pane',
-  requestId: 'panel-claude',
+  requestId: 'panel-shell',
   props: {
     title: 'Panel',
     isFocused: false,
