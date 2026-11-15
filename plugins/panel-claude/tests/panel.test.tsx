@@ -1203,3 +1203,596 @@ test('la tecla d abre el diff completo del último archivo desplegado, o avisa',
   expect(spawned[1]?.at(-1)).toBe('nuevo.md')
   await ui.unmount()
 })
+
+/** Lo que el listado de sesiones devuelve: dos usadas y una vacía. */
+const SESSIONS_OUT = [
+  'F\taaa.jsonl\t940',
+  '{"type":"ai-title","aiTitle":"Pestaña de sesiones","sessionId":"aaa"}',
+  '{"type":"last-prompt","lastPrompt":"agrega la pestaña","sessionId":"aaa"}',
+  '{"type":"cost-state","totalCostUSD":1.8223,"totalDuration":674000,"totalLinesAdded":69,"totalLinesRemoved":2}',
+  'F\tbbb.jsonl\t400',
+  '{"type":"last-prompt","lastPrompt":"arregla el diff","sessionId":"bbb"}',
+  'F\tvacia.jsonl\t300',
+  '',
+].join('\n')
+
+/** Un motor falso con sesiones guardadas; guarda cada comando `sh` pedido. */
+const sessionsEngine = (on: On, prompts = '') => {
+  const asked: (readonly string[])[] = []
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+  }))
+  mock.clock(on, { now: 1_000_000 })
+  on('session.root', () => ({ value: '/home/ana/mi proyecto' }))
+  on('session.id', () => ({ value: 'bbb' }))
+  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/ana' : undefined }))
+  on('process.run', (_, e) => {
+    if (e.argv[0] !== 'sh' || e.argv[1] !== '-c') return { value: { ...OK, exitCode: 128, stdout: '' } }
+    asked.push(e.argv)
+    const script = e.argv[2] ?? ''
+
+    return {
+      value: {
+        ...OK,
+        stdout: script.includes('ls -t') ? SESSIONS_OUT : script.includes('promptSource') ? prompts : '',
+      },
+    }
+  })
+
+  return asked
+}
+
+test('SESIONES lista las sesiones de la carpeta y despliega sus datos', async ($, on) => {
+  const asked = sessionsEngine(on)
+  on('store.get', () => ({ value: { aaa: 'Se añadió la pestaña.' } }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  // La carpeta de transcripciones sale de la raíz de la sesión.
+  // (Antes de abrir la pestaña ya se leyó el modo de permisos, que también usa `sh`.)
+  expect(asked.find(argv => argv[2]?.includes('ls -t'))?.[4]).toBe(
+    '/home/ana/.claude/projects/-home-ana-mi-proyecto',
+  )
+  // La vacía no sale; la que corre lleva "esta" y la otra su hora.
+  await has(/^Sesiones · 2$/)
+  await has(/○ Pestaña de sesiones\s+1m$/)
+  await has(/● arregla el diff\s+esta$/)
+
+  expect(await ui.find({ type: 'Text', text: /agrega la pestaña/ })).toBeUndefined()
+  await ui.press({ key: 'session:aaa' })
+  await has(/^› agrega la pestaña$/)
+  await has(/^\$1\.82 · 11:14 · \+69 −2$/)
+  // El resumen guardado en otra sesión vuelve del store.
+  await has(/^Se añadió la pestaña\.$/)
+  expect(await ui.find({ type: 'Button', key: 'resume' })).toBeDefined()
+
+  // La sesión que corre no se reanuda.
+  await ui.press({ key: 'session:bbb' })
+  expect(await ui.find({ type: 'Button', key: 'resume' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('Resumir pide un resumen al modelo rápido con los prompts y lo guarda', async ($, on) => {
+  const typed = (content: unknown, extra = '') =>
+    `{"type":"user","promptSource":"typed"${extra},"message":{"role":"user","content":${JSON.stringify(content)}}}`
+  sessionsEngine(
+    on,
+    [
+      typed('agrega una pestaña de sesiones'),
+      typed('<command-name>/model</command-name>'),
+      typed('de un subagente', ',"isSidechain":true'),
+      typed([{ type: 'text', text: 'ahora los resúmenes' }]),
+      '',
+    ].join('\n'),
+  )
+  const requests: { model: string; prompt: unknown }[] = []
+  const saved: unknown[] = []
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', (_, e) => {
+    saved.push(e.value)
+
+    return { value: undefined }
+  })
+  on('model.complete', (_, e) => {
+    requests.push({ model: e.model, prompt: e.prompt })
+
+    return {
+      value: {
+        isAnswered: true as const,
+        text: ' Se pidió una pestaña de sesiones. ',
+        usage: {
+          model: 'haiku',
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    }
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  await ui.press({ key: 'session:aaa' })
+  await ui.press({ key: 'summarize' })
+
+  expect(requests).toHaveLength(1)
+  expect(requests[0]?.model).toBe('haiku')
+  // Solo los prompts escritos del hilo principal, numerados.
+  expect(requests[0]?.prompt).toBe(
+    'Título: Pestaña de sesiones\n\nPrompts:\n1. agrega una pestaña de sesiones\n2. ahora los resúmenes',
+  )
+  expect(await ui.find({ type: 'Text', text: /^Se pidió una pestaña de sesiones\.$/ })).toBeDefined()
+  expect(saved).toEqual([{ aaa: 'Se pidió una pestaña de sesiones.' }])
+  await ui.unmount()
+})
+
+test('si el modelo no responde, Resumir avisa y no guarda nada', async ($, on) => {
+  sessionsEngine(on)
+  const toasts: string[] = []
+  on('store.get', () => ({ value: undefined }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('model.complete', () => ({
+    value: {
+      isAnswered: false as const,
+      reason: 'empty-reply' as const,
+      usage: {
+        model: 'haiku',
+        input_tokens: 1,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    },
+  }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  await ui.press({ key: 'session:aaa' })
+  await ui.press({ key: 'summarize' })
+  expect(toasts).toContain('No se pudo resumir la sesión.')
+  expect(await ui.find({ type: 'Text', text: /Resumiendo/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('Reanudar abre claude --resume con el id en una terminal', async ($, on) => {
+  sessionsEngine(on)
+  const spawned: string[][] = []
+  on('store.get', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('process.spawn', async function* (_, e) {
+    spawned.push([...e.argv])
+
+    return { value: { code: 0, signal: null } }
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  await ui.press({ key: 'session:aaa' })
+  await ui.press({ key: 'resume' })
+  expect(spawned).toHaveLength(1)
+  expect(spawned[0]?.slice(-3)).toEqual(['claude', '--resume', 'aaa'])
+  await ui.unmount()
+})
+
+/**
+ * Un motor falso de git y gh. `answer` responde por comando (un texto es su
+ * stdout); lo que no responde da `main` o, para `git log`, nada. Devuelve cada
+ * comando pedido y el reloj falso.
+ */
+const repoEngine = (
+  on: On,
+  answer: (argv: readonly string[]) => string | { stdout?: string; stderr?: string; exitCode?: number } | undefined,
+) => {
+  const calls: (readonly string[])[] = []
+  baseEngine(on)
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('process.run', (_, e) => {
+    calls.push(e.argv)
+    const got = answer(e.argv)
+    const out = typeof got === 'string' ? { stdout: got } : (got ?? {})
+
+    return { value: { ...OK, stdout: e.argv.includes('log') ? '' : 'main\n', ...out } }
+  })
+
+  return { calls, clock }
+}
+
+const toastsOf = (on: On) => {
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  return toasts
+}
+
+test('un renombrado en stage sale con la ruta nueva y sus líneas, y su botón usa la ruta nueva', async ($, on) => {
+  const { calls } = repoEngine(on, argv =>
+    argv.includes('status')
+      ? 'R  lib/viejo/x.ts -> lib/x.ts\nR  "a b.ts" -> "src/c d.ts"\n'
+      : argv.includes('--numstat')
+        ? '2\t1\tlib/{viejo => }/x.ts\n0\t0\ta b.ts => src/c d.ts\n'
+        : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(calls.find(argv => argv.includes('status'))).toEqual([
+    'git', '-c', 'core.quotePath=false', 'status', '--porcelain', '-b',
+  ])
+  expect(calls.find(argv => argv.includes('--numstat'))).toEqual([
+    'git', '-c', 'core.quotePath=false', 'diff', '--numstat', '-M', 'HEAD',
+  ])
+  expect(await ui.find({ type: 'Text', text: /^R  lib\/x\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\+2 −1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /viejo/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'stage:lib/x.ts' })).toBeDefined()
+  // La ruta con comillas llega sin ellas.
+  expect(await ui.find({ type: 'Button', key: 'stage:src/c d.ts' })).toBeDefined()
+  await ui.unmount()
+})
+
+/** Los dos archivos de la prueba de "de Claude": uno se edita, el otro ya estaba sucio. */
+const touchedEngine = (on: On) => {
+  const engine = repoEngine(on, argv =>
+    argv.includes('status')
+      ? ' M a.ts\n M b.ts\n'
+      : argv.includes('--show-toplevel')
+        ? '/tmp/demo\n'
+        : undefined,
+  )
+  toastsOf(on)
+
+  return engine
+}
+
+test('un Edit marca el archivo con ✦, cuenta en el título y el botón filtra', async ($, on) => {
+  touchedEngine(on)
+  on('tool.call', () => ({ result: {} }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Edit', file_path: '/tmp/demo/a.ts', old_string: 'a', new_string: 'b' })
+  // Una ruta relativa se toma desde la carpeta de la sesión.
+  await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'b', new_string: 'c' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  const lacks = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeUndefined()
+
+  await has(/^Cambios · 2 · 1 de Claude$/)
+  await has(/^M ✦a\.ts$/)
+  await has(/^M  b\.ts$/)
+
+  await ui.press({ key: 'tab-git' })
+  await has(/^M ✦a\.ts/)
+  await has(/^M  b\.ts/)
+  expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('Solo de Claude')
+  await ui.press({ key: 'only-touched' })
+  expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('Todos')
+  await has(/^M ✦a\.ts/)
+  await lacks(/b\.ts/)
+  await ui.press({ key: 'only-touched' })
+  await has(/^M  b\.ts/)
+  await ui.unmount()
+})
+
+test('un Edit denegado no cuenta como tocado y sin tocados no hay botón', async ($, on) => {
+  touchedEngine(on)
+  on('tool.call', () => ({ deny: 'no' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Edit', file_path: '/tmp/demo/a.ts', old_string: 'a', new_string: 'b' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /de Claude|✦/ })).toBeUndefined()
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Button', key: 'only-touched' })).toBeUndefined()
+  await ui.unmount()
+})
+
+/** Una respuesta de `gh pr view` con checks de los dos tipos. */
+const PR_JSON = JSON.stringify({
+  number: 12,
+  title: 'Añade la pestaña de sesiones',
+  state: 'OPEN',
+  isDraft: false,
+  url: 'https://github.com/x/y/pull/12',
+  reviewDecision: 'CHANGES_REQUESTED',
+  statusCheckRollup: [
+    { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SKIPPED' },
+    { __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'FAILURE' },
+    { __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS', conclusion: '' },
+    { __typename: 'StatusContext', context: 'ci/deploy', state: 'PENDING' },
+    { __typename: 'StatusContext', context: 'ci/legacy', state: 'SUCCESS' },
+    { __typename: 'StatusContext', context: 'ci/audit', state: 'ERROR' },
+  ],
+})
+
+test('GIT muestra el PR con su estado y los checks, y Abrir PR corre gh pr view --web', async ($, on) => {
+  const { calls } = repoEngine(on, argv =>
+    argv[0] === 'gh' ? (argv.includes('--web') ? '' : PR_JSON) : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  // En MAIN no se lee ni se dibuja.
+  expect(calls.filter(argv => argv[0] === 'gh')).toEqual([])
+
+  await ui.press({ key: 'tab-git' })
+  const view = calls.find(argv => argv[0] === 'gh')
+  expect(view).toEqual([
+    'gh', 'pr', 'view', '--json',
+    'number,title,state,isDraft,url,reviewDecision,statusCheckRollup',
+  ])
+  await has(/^Pull request$/)
+  await has(/^#12 Añade la pestaña de sesiones$/)
+  await has(/^abierto · piden cambios$/)
+  // 3 en verde (build, lint, ci/legacy), 2 fallidos (test, ci/audit), 2 pendientes.
+  const checks = await ui.find({ type: 'Text', text: /^✓ 3 ✗ 2 ● 2$/ })
+  expect(checks?.props?.color).toBe('error')
+  await has(/✗ test/)
+  await has(/✗ ci\/audit/)
+  await has(/● e2e/)
+  await has(/● ci\/deploy/)
+  expect(await ui.find({ type: 'Text', text: /build|lint|legacy/ })).toBeUndefined()
+
+  await ui.press({ key: 'open-pr' })
+  expect(calls.at(-1)).toEqual(['gh', 'pr', 'view', '--web'])
+  await ui.unmount()
+})
+
+test('una rama sin PR lo dice; si gh falla no se dibuja nada', async ($, on) => {
+  let isNone = true
+  repoEngine(on, argv =>
+    argv[0] === 'gh'
+      ? isNone
+        ? { exitCode: 1, stderr: 'no pull requests found for branch "main"' }
+        : { exitCode: 1, stderr: 'gh: command not found' }
+      : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^Pull request$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Sin PR para esta rama\.$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'open-pr' })).toBeUndefined()
+
+  isNone = false
+  await ui.press({ key: 'tab-main' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /Pull request|Sin PR/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('el toast avisa cuando los checks del PR dejan de estar pendientes', async ($, on) => {
+  const toasts = toastsOf(on)
+  let checks: unknown[] = [
+    { name: 'build', status: 'IN_PROGRESS' },
+    { name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' },
+  ]
+  let reads = 0
+  const { clock } = repoEngine(on, argv => {
+    if (argv[0] !== 'gh') return undefined
+    reads += 1
+
+    return JSON.stringify({ number: 7, title: 'T', state: 'OPEN', isDraft: false, url: '', statusCheckRollup: checks })
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(reads).toBe(1)
+  // Dentro del minuto no se vuelve a leer.
+  await clock.advance(30_000)
+  expect(reads).toBe(1)
+  expect(toasts.filter(text => text.startsWith('Checks'))).toEqual([])
+
+  // Pasado el minuto, con GIT a la vista y checks pendientes, se relee: todo en verde.
+  checks = [
+    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' },
+  ]
+  await clock.advance(35_000)
+  expect(reads).toBe(2)
+  expect(toasts).toContain('Checks del PR #7: todo en verde.')
+  // Ya sin pendientes no se vuelve a leer por el reloj.
+  await clock.advance(120_000)
+  expect(reads).toBe(2)
+  await ui.unmount()
+})
+
+test('un check que falla al terminar avisa cuántos fallaron', async ($, on) => {
+  const toasts = toastsOf(on)
+  let state = 'IN_PROGRESS'
+  const { clock } = repoEngine(on, argv =>
+    argv[0] === 'gh'
+      ? JSON.stringify({
+          number: 3,
+          title: 'T',
+          state: 'OPEN',
+          isDraft: true,
+          url: '',
+          statusCheckRollup: [{ name: 'build', status: state, conclusion: 'FAILURE' }],
+        })
+      : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^borrador$/ })).toBeDefined()
+  state = 'COMPLETED'
+  await clock.advance(65_000)
+  expect(toasts).toContain('Checks del PR #3: fallaron 1.')
+  await ui.unmount()
+})
+
+test('un Bash con git push relee el PR; con otro comando no', async ($, on) => {
+  const { calls } = repoEngine(on, argv => (argv[0] === 'gh' ? PR_JSON : undefined))
+  on('tool.call', () => ({ result: {} }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const reads = () => calls.filter(argv => argv[0] === 'gh').length
+
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  expect(reads()).toBe(0)
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main' })
+  expect(reads()).toBe(1)
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill' })
+  expect(reads()).toBe(2)
+})
+
+test('con showPr en off no se lee ni se dibuja el PR', { options: { showPr: 'off' } }, async ($, on) => {
+  const { calls } = repoEngine(on, argv => (argv[0] === 'gh' ? PR_JSON : undefined))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /Pull request|#12/ })).toBeUndefined()
+  expect(calls.filter(argv => argv[0] === 'gh')).toEqual([])
+  await ui.unmount()
+})
+
+/** La salida de `git worktree list --porcelain` con un worktree principal y uno enlazado. */
+const TREES = [
+  'worktree /tmp/demo',
+  'HEAD aaaaaaaa11111111',
+  'branch refs/heads/main',
+  '',
+  'worktree /tmp/demo-fix',
+  'HEAD bbbbbbbb22222222',
+  'branch refs/heads/fix/uno',
+  '',
+  'worktree /tmp/demo-viejo',
+  'HEAD cccccccc33333333',
+  'detached',
+  '',
+].join('\n')
+
+test('con más de un worktree GIT los lista y el botón abre lazygit en ese worktree', async ($, on) => {
+  const spawned: string[][] = []
+  const { calls } = repoEngine(on, argv =>
+    argv.includes('--show-toplevel')
+      ? '/tmp/demo\n'
+      : argv.includes('worktree')
+        ? TREES
+        : argv[0] === 'sh'
+          ? argv.at(-1) === 'lazygit' || argv.at(-1) === 'kitty'
+            ? ''
+            : { exitCode: 1 }
+          : undefined,
+  )
+  toastsOf(on)
+  on('process.spawn', async function* (_, e) {
+    spawned.push([...e.argv])
+
+    return { value: { code: 0, signal: null } }
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(calls.some(argv => argv.join(' ') === 'git worktree list --porcelain')).toBe(true)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^Worktrees · 3$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● main\s+\/tmp\/demo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ fix\/uno\s+\/tmp\/demo-fix$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\)/ })).toBeDefined()
+
+  await ui.press({ key: 'worktree:/tmp/demo-fix' })
+  expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo-fix']])
+  await ui.unmount()
+})
+
+test('con un solo worktree no sale la sección', async ($, on) => {
+  repoEngine(on, argv =>
+    argv.includes('--show-toplevel')
+      ? '/tmp/demo\n'
+      : argv.includes('worktree')
+        ? 'worktree /tmp/demo\nHEAD aaaaaaaa\nbranch refs/heads/main\n\n'
+        : undefined,
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /Worktrees/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+/** Un motor falso cuya transcripción guarda el último registro de modo dado. */
+const modeEngine = (on: On, record: string) => {
+  baseEngine(on)
+  on('session.root', () => ({ value: '/tmp/demo' }))
+  on('session.id', () => ({ value: 'abc' }))
+  mock.clock(on, { now: 1_000_000 })
+  const asked: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'sh') asked.push(e.argv)
+
+    return {
+      value: {
+        ...OK,
+        stdout: e.argv[0] === 'sh' ? record : e.argv.includes('log') ? '' : 'main\n',
+      },
+    }
+  })
+
+  return asked
+}
+
+test('Status muestra el modo de permisos: plan en naranja, sin permisos en rojo', async ($, on) => {
+  const asked = modeEngine(on, '{"type":"permission-mode","permissionMode":"plan","sessionId":"abc"}\n')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(asked[0]?.at(-1)).toBe('/.claude/projects/-tmp-demo/abc.jsonl')
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Modo$/ })).toBeDefined()
+  const mode = await ui.find({ type: 'Text', text: /^plan$/ })
+  expect(mode?.props?.color).toBe('warning')
+  await ui.unmount()
+})
+
+test('sin registro de modo, o con una transcripción que no es JSON, no hay fila Modo', async ($, on) => {
+  modeEngine(on, '')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Modo$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Modelo$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('el modo bypassPermissions sale en rojo como "sin permisos"', async ($, on) => {
+  modeEngine(on, '{"type":"permission-mode","permissionMode":"bypassPermissions"}')
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(turn(undefined, 0, 10))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const mode = await ui.find({ type: 'Text', text: /^sin permisos$/ })
+  expect(mode?.props?.color).toBe('error')
+  await ui.unmount()
+})

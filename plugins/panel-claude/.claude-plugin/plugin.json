@@ -1,7 +1,7 @@
 {
   "name": "panel-claude",
-  "version": "0.7.0",
-  "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes y tareas",
+  "version": "0.8.0",
+  "description": "Panel para Claude Code: carpeta, git con lazygit, contexto, caché, límites, MCP, subagentes, tareas y sesiones anteriores",
   "author": {
     "name": "Jose Luis Yana"
   },
@@ -43,8 +43,8 @@
     },
     "terminal": {
       "type": "string",
-      "title": "Terminal para lazygit",
-      "description": "En qué terminal abre lazygit el botón de la pestaña GIT. \"auto\" usa $TERMINAL o la primera instalada; dentro de tmux siempre se abre en un popup.",
+      "title": "Terminal para ventanas",
+      "description": "En qué terminal se abren lazygit, Ver diff y Reanudar. \"auto\" usa $TERMINAL o la primera instalada; dentro de tmux siempre se abren en un popup.",
       "options": [
         "auto",
         "ghostty",
@@ -73,6 +73,16 @@
       "type": "string",
       "title": "Mostrar MCP",
       "description": "Muestra la sección MCP en la pestaña MAIN.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "showPr": {
+      "type": "string",
+      "title": "Mostrar Pull request",
+      "description": "Muestra la sección Pull request (y sus checks de CI) en la pestaña GIT. Necesita gh instalado y con sesión iniciada.",
       "options": [
         "on",
         "off"

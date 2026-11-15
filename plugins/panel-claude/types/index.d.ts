@@ -41,6 +41,32 @@ export type PanelSession = {
   turnUsd: number | null
 }
 
+/** Una sesión guardada de esta carpeta, leída de su transcripción. */
+export type PanelPast = {
+  /** El id de la sesión: el nombre de su archivo, el que toma `claude --resume`. */
+  id: string
+  /** El título que Claude Code le puso; vacío si no tiene. */
+  title: string
+  /** Lo último que se le pidió. */
+  lastPrompt?: string
+  /** Cuándo se tocó por última vez, en segundos. */
+  at: number
+  /** Costo, duración y líneas cambiadas; ausentes si la sesión no los guardó. */
+  usd?: number
+  durationMs?: number
+  added?: number
+  removed?: number
+  /** Es la sesión que está corriendo. */
+  isCurrent: boolean
+}
+
+/** El resumen de una sesión, hecho con el modelo rápido. */
+export type PanelSummary = {
+  /** Vacío mientras se hace el primero. */
+  text: string
+  isLoading?: boolean
+}
+
 /** Lo que la pestaña GIT muestra del repositorio. */
 export type PanelGit = {
   /** Archivos con cambios: el código de git, sus dos letras por separado y la ruta. */
@@ -51,11 +77,18 @@ export type PanelGit = {
     index: string
     /** Y: estado en la carpeta de trabajo; ' ' si no hay cambio. */
     worktree: string
+    /** La ruta, relativa a la raíz del repo; la nueva si el archivo se renombró o copió. */
     path: string
+    /** La ruta vieja de un renombrado o una copia. */
+    from?: string
     /** Líneas añadidas y quitadas (`git diff --numstat`); ausentes en los sin seguimiento y binarios. */
     added?: number
     removed?: number
   }[]
+  /** La raíz del repo (ruta absoluta); ausente si git no la dio. */
+  root?: string
+  /** Los worktrees del repo, con el actual marcado; vacío si git no los listó. */
+  worktrees: { path: string; branch: string; isCurrent: boolean }[]
   /** Cuántos archivos tienen cambios en total (`files` guarda hasta 200). */
   total: number
   /** Cuántos tienen cambios en el índice, listos para el commit. */
@@ -75,6 +108,20 @@ export type PanelGit = {
     /** Falta por subir al remoto. */
     isUnpushed?: boolean
   }[]
+}
+
+/** El pull request de la rama actual, leído con `gh`. */
+export type PanelPr = {
+  number: number
+  title: string
+  /** `OPEN`, `CLOSED` o `MERGED`. */
+  state: string
+  isDraft: boolean
+  url: string
+  /** La decisión de revisión (`APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`); ausente si no hay. */
+  review?: string
+  /** Los checks de CI reducidos a tres estados. */
+  checks: { name: string; state: 'ok' | 'fail' | 'pending' }[]
 }
 
 /** El diff resumido de un archivo: sus primeras líneas y cuántas faltan. */
@@ -130,11 +177,25 @@ declare module 'claude-code' {
       git: Shaped<PanelGit | null>
       /** Los servidores vistos en la sesión; vacío si nunca hubo uno. */
       mcp: Shaped<PanelMcp[]>
-      tab: 'main' | 'git' | 'tasks'
+      tab: 'main' | 'git' | 'tasks' | 'sessions'
+      /** Las sesiones guardadas de esta carpeta; null hasta que se abre SESIONES. */
+      sessions: Shaped<PanelPast[] | null>
+      /** La sesión desplegada en SESIONES; null si ninguna. */
+      openSession: string | null
+      /** El resumen de cada sesión, por su id. */
+      summaries: Shaped<Record<string, PanelSummary>>
       /** Archivos de GIT desplegados, como `grupo:ruta` (`stage`, `unstaged`, `untracked`); el último al final. */
       expanded: Shaped<string[]>
       /** El diff resumido de cada archivo desplegado, por su clave `grupo:ruta`. */
       diffs: Shaped<Record<string, PanelDiff>>
+      /** Rutas absolutas que Claude editó en esta sesión, sin repetir (hasta 200). */
+      touched: Shaped<string[]>
+      /** GIT muestra solo los archivos que Claude tocó. */
+      onlyTouched: boolean
+      /** El PR de la rama: null si no se sabe o no hay `gh`; 'none' si la rama no tiene PR. */
+      pr: Shaped<PanelPr | 'none' | null>
+      /** El modo de permisos de la sesión, tal como lo guarda la transcripción; null si no se sabe. */
+      mode: string | null
       cache: Shaped<PanelCache>
       cacheStats: Shaped<PanelCacheStats>
       session: Shaped<PanelSession>
