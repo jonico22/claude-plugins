@@ -43,9 +43,14 @@ export type PanelSession = {
 
 /** Lo que la pestaña GIT muestra del repositorio. */
 export type PanelGit = {
-  /** Archivos con cambios: el código de dos letras de git y la ruta. */
+  /** Archivos con cambios: el código de git, sus dos letras por separado y la ruta. */
   files: {
+    /** El código XY sin espacios sobrantes (`M`, `MM`, `??`). */
     code: string
+    /** X: estado en el índice (stage); ' ' si no hay cambio. */
+    index: string
+    /** Y: estado en la carpeta de trabajo; ' ' si no hay cambio. */
+    worktree: string
     path: string
     /** Líneas añadidas y quitadas (`git diff --numstat`); ausentes en los sin seguimiento y binarios. */
     added?: number

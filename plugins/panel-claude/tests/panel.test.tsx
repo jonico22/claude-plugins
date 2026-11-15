@@ -981,3 +981,90 @@ test('un MCP que deja de dar herramientas sale en rojo con ○', async ($, on) =
   expect(await again.find({ type: 'Text', text: /● / })).toBeDefined()
   await again.unmount()
 })
+
+/** Un motor falso cuyo `git status` devuelve las líneas dadas. */
+const statusEngine = (on: On, status: string, numstat = '') => {
+  baseEngine(on)
+  mock.clock(on, { now: 1_000_000 })
+  on('process.run', (_, e) => {
+    const stdout = e.argv.includes('status')
+      ? status
+      : e.argv.includes('--numstat')
+        ? numstat
+        : e.argv.includes('log')
+          ? ''
+          : 'main\n'
+
+    return { value: { ...OK, stdout } }
+  })
+}
+
+test('GIT agrupa los cambios en stage, sin stage y sin seguimiento', async ($, on) => {
+  statusEngine(
+    on,
+    'M  listo.ts\nMM ambos.ts\n M suelto.ts\n?? nuevo.md\n?? otro.md\n',
+    '1\t0\tlisto.ts\n5\t2\tambos.ts\n3\t1\tsuelto.ts\n',
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  await has(/^Cambios · 5  \+9 −3$/)
+  // 'MM' cuenta en los dos primeros grupos.
+  await has(/^En stage · 2$/)
+  await has(/^Sin stage · 2$/)
+  await has(/^Sin seguimiento · 2$/)
+  await has(/^\+6 −2$/)
+  await has(/^\+8 −3$/)
+  await has(/listo\.ts/)
+  await has(/suelto\.ts/)
+  await has(/\?\? nuevo\.md/)
+  expect(await ui.find({ type: 'Text', text: /ambos\.ts/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('GIT no muestra los grupos vacíos y dice si no hay cambios', async ($, on) => {
+  statusEngine(on, '?? nuevo.md\n')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^Sin seguimiento · 1$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /En stage|Sin stage/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('GIT con el árbol limpio dice Sin cambios pendientes', async ($, on) => {
+  statusEngine(on, '')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /Sin cambios pendientes\./ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /En stage|Sin stage|seguimiento/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('GIT muestra 15 por grupo y "… y N más"; MAIN sigue en 6', async ($, on) => {
+  const many = Array.from({ length: 20 }, (_, index) => ` M f${index}.ts\n`).join('')
+  statusEngine(on, many)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // MAIN: 6 archivos, lista plana y el total en el título.
+  expect(await ui.find({ type: 'Text', text: /^Cambios · 20$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /f5\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /f6\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^… y 14 más$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Sin stage/ })).toBeUndefined()
+
+  await ui.press({ key: 'tab-git' })
+  expect(await ui.find({ type: 'Text', text: /^Sin stage · 20$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /f14\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /f15\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^… y 5 más$/ })).toBeDefined()
+  await ui.unmount()
+})

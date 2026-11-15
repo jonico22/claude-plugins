@@ -63,7 +63,7 @@ const session = atom(
 const clock = atom({ plugin: 'panel-claude', key: 'now' } as const, 0)
 
 const git = atom({ plugin: 'panel-claude', key: 'git' } as const, null, {
-  shape: 'git-3',
+  shape: 'git-4',
 })
 // Los servidores MCP vistos en la sesión, aunque ya no aporten herramientas.
 const mcp = atom({ plugin: 'panel-claude', key: 'mcp' } as const, [], {
@@ -96,7 +96,8 @@ const TERMINAL_ARGS: Record<string, string[]> = {
   wezterm: ['start', '--'],
   'gnome-terminal': ['--'],
 }
-const MAX_FILES = 12
+// En GIT cada grupo de Cambios muestra hasta este número de archivos.
+const MAX_GROUP_FILES = 15
 // En MAIN la lista de cambios es más corta: comparte el panel con todo lo demás.
 const MAX_MAIN_FILES = 6
 const MAX_MCP = 8
@@ -265,6 +266,8 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
     }
     const files = entries.map(line => ({
       code: line.slice(0, 2).trim(),
+      index: line[0] ?? ' ',
+      worktree: line[1] ?? ' ',
       path: line.slice(3),
     })).map(file => ({ ...file, ...(file.code === '??' ? {} : counts.get(file.path)) }))
     // Sin stash guardado el comando falla: cuenta como cero.
@@ -327,7 +330,6 @@ const readGit = async ($: EngineInterface, cwd: string): Promise<PanelGit | null
         : {}),
     }
   } catch {
-    return null
     return null
   }
 }
@@ -975,44 +977,100 @@ export const register: Register = (on, options) => {
         : code === '??' || code.includes('A')
           ? 'success'
           : 'warning'
-    // La lista de archivos con cambios, igual en MAIN y en GIT; solo cambia el tope.
     const added = files.reduce((sum, file) => sum + (file.added ?? 0), 0)
     const removed = files.reduce((sum, file) => sum + (file.removed ?? 0), 0)
     const hasNumbers = files.some(file => file.added !== undefined)
+    const changesTitle = () =>
+      title(
+        `Cambios · ${repo?.total ?? files.length}${hasNumbers ? `  +${added} −${removed}` : ''}`,
+      )
+    // Una fila de archivo; `code` es lo que se muestra de su código de git.
+    const fileRow = (file: (typeof files)[number], code: string) => {
+      const numbers =
+        file.added === undefined ? '' : `+${file.added} −${file.removed ?? 0}`
+
+      return (
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Text wrap="truncate-start">
+            <Text color={fileColor(code)}>{code.padEnd(2)} </Text>
+            {fitPath(file.path, inner - 3 - (numbers === '' ? 0 : numbers.length + 1))}
+          </Text>
+          {numbers !== '' && (
+            <Box flexShrink={0}>
+              <Text>
+                <Text color={file.added === 0 ? undefined : 'success'} dimColor={file.added === 0}>
+                  +{file.added}
+                </Text>{' '}
+                <Text color={file.removed ? 'error' : undefined} dimColor={!file.removed}>
+                  −{file.removed ?? 0}
+                </Text>
+              </Text>
+            </Box>
+          )}
+        </Box>
+      )
+    }
+    // MAIN: lista plana con tope; el total va en el título.
     const changes = (max: number) => (
       <Box flexDirection="column">
-        {title(
-          `Cambios · ${repo?.total ?? files.length}${hasNumbers ? `  +${added} −${removed}` : ''}`,
-        )}
+        {changesTitle()}
         {files.length === 0 && <Text dimColor>Sin cambios pendientes.</Text>}
-        {files.slice(0, max).map(file => {
-          const numbers =
-            file.added === undefined ? '' : `+${file.added} −${file.removed ?? 0}`
+        {files.slice(0, max).map(file => fileRow(file, file.code))}
+        {(repo?.total ?? files.length) > max && (
+          <Text dimColor>… y {(repo?.total ?? files.length) - max} más</Text>
+        )}
+      </Box>
+    )
+    // GIT: tres grupos. Un archivo con cambios en el índice y en la carpeta
+    // (p. ej. "MM") sale en los dos primeros.
+    const groups = [
+      {
+        label: 'En stage',
+        rows: files
+          .filter(file => file.index !== ' ' && file.index !== '?')
+          .map(file => ({ file, code: file.index })),
+      },
+      {
+        label: 'Sin stage',
+        rows: files
+          .filter(file => file.worktree !== ' ' && file.code !== '??')
+          .map(file => ({ file, code: file.worktree })),
+      },
+      {
+        label: 'Sin seguimiento',
+        rows: files.filter(file => file.code === '??').map(file => ({ file, code: '??' })),
+      },
+    ].filter(group => group.rows.length > 0)
+    const groupedChanges = () => (
+      <Box flexDirection="column">
+        {changesTitle()}
+        {files.length === 0 && <Text dimColor>Sin cambios pendientes.</Text>}
+        {groups.map(group => {
+          const hasGroupNumbers = group.rows.some(({ file }) => file.added !== undefined)
+          const groupAdded = group.rows.reduce((sum, { file }) => sum + (file.added ?? 0), 0)
+          const groupRemoved = group.rows.reduce((sum, { file }) => sum + (file.removed ?? 0), 0)
 
           return (
-            <Box flexDirection="row" justifyContent="space-between" gap={1}>
-              <Text wrap="truncate-start">
-                <Text color={fileColor(file.code)}>{file.code.padEnd(2)} </Text>
-                {fitPath(file.path, inner - 3 - (numbers === '' ? 0 : numbers.length + 1))}
-              </Text>
-              {numbers !== '' && (
-                <Box flexShrink={0}>
-                  <Text>
-                    <Text color={file.added === 0 ? undefined : 'success'} dimColor={file.added === 0}>
-                      +{file.added}
-                    </Text>{' '}
-                    <Text color={file.removed ? 'error' : undefined} dimColor={!file.removed}>
-                      −{file.removed ?? 0}
-                    </Text>
-                  </Text>
-                </Box>
+            <Box flexDirection="column" marginTop={1}>
+              <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                <Text bold wrap="truncate-end">
+                  {group.label} · {group.rows.length}
+                </Text>
+                {hasGroupNumbers && (
+                  <Box flexShrink={0}>
+                    <Text dimColor>{`+${groupAdded} −${groupRemoved}`}</Text>
+                  </Box>
+                )}
+              </Box>
+              {group.rows
+                .slice(0, MAX_GROUP_FILES)
+                .map(({ file, code }) => fileRow(file, code))}
+              {group.rows.length > MAX_GROUP_FILES && (
+                <Text dimColor>… y {group.rows.length - MAX_GROUP_FILES} más</Text>
               )}
             </Box>
           )
         })}
-        {(repo?.total ?? files.length) > max && (
-          <Text dimColor>… y {(repo?.total ?? files.length) - max} más</Text>
-        )}
       </Box>
     )
 
@@ -1062,7 +1120,7 @@ export const register: Register = (on, options) => {
             row('Stage', `${repo.staged} listos · ${repo.unstaged} sin stage`)}
           {repo !== null && repo.stashes > 0 && row('Stash', String(repo.stashes))}
 
-          {repo !== null && changes(MAX_FILES)}
+          {repo !== null && groupedChanges()}
 
           {repo !== null && title('Commits')}
           {repo !== null && repo.commits.length === 0 && (
