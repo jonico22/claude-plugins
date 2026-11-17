@@ -34,10 +34,12 @@ export type PanelCache = {
 /** Tokens leídos del caché y entrada total de los turnos del hilo principal. */
 export type PanelCacheStats = { read: number; input: number }
 
-/** Cuándo empezó la sesión y el costo medido: total y lo que subió el último turno. */
+/** Cuándo empezó la sesión y el costo medido: total, total al empezar el último turno y lo que costó. */
 export type PanelSession = {
   startedAt: number | null
+  engineStartedAt: number | null
   usd: number | null
+  turnStartUsd: number | null
   turnUsd: number | null
 }
 

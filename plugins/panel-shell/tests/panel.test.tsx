@@ -54,7 +54,7 @@ test('el panel muestra carpeta, rama, modelo, contexto y costo', async ($, on) =
   await has(/feature\/panel/)
   await has(/opus/)
   await has(/199k/)
-  await has(/Alerta 73%/)
+  await has(/Alert 73%/)
   await has(/\$1\.500/)
   await ui.unmount()
 })
@@ -62,7 +62,7 @@ test('el panel muestra carpeta, rama, modelo, contexto y costo', async ($, on) =
 test('sin datos todavía, el panel lo dice', async $ => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('Leyendo la sesión…')
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('Reading the session…')
   await ui.unmount()
 })
 
@@ -126,21 +126,21 @@ test('muestra las tareas y los subagentes con sus tokens', async ($, on) => {
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
   // En MAIN solo hay un resumen de una línea por sección.
-  await has(/Todos · 0 de 1/)
+  await has(/To-dos · 0 of 1/)
   await has(/Escribir pruebas/)
-  await has(/Subagentes · 1 activo de 1/)
+  await has(/Subagents · 1 of 1 active/)
   expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /Buscar rutas/ })).toBeUndefined()
 
   // La pestaña TAREAS los muestra completos.
   await ui.press({ key: 'tab-tasks' })
-  await has(/Todos · 0 de 1/)
+  await has(/To-dos · 0 of 1/)
   await has(/▸ Escribir pruebas/)
-  await has(/Subagentes · 1/)
+  await has(/Subagents · 1/)
   await has(/Explore/)
   await has(/▲ 5k ▼ 250/)
   await has(/Buscar rutas/)
-  expect(await ui.find({ type: 'Text', text: /Contexto/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Context/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -152,10 +152,10 @@ test('sin subagentes ni todos, MAIN no muestra su resumen', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /Subagentes|Todos/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Subagents|To-dos/ })).toBeUndefined()
   await ui.press({ key: 'tab-tasks' })
-  expect(await ui.find({ type: 'Text', text: /Sin subagentes/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Sin tareas/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /No subagents/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /No to-dos/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -327,13 +327,13 @@ test('la pestaña GIT muestra cambios y commits', async ($, on) => {
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
   // Empieza en MAIN; el botón GIT cambia de vista.
-  await has(/Contexto/)
+  await has(/Context/)
   await ui.press({ key: 'tab-git' })
-  await has(/Cambios · 2/)
+  await has(/Changes · 2/)
   await has(/hooks\/register\.tsx/)
   await has(/\?\? notas\.md/)
   await has(/a1b2c3d Primer commit/)
-  expect(await ui.find({ type: 'Text', text: /Contexto/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Context/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -443,7 +443,7 @@ test('la barra del caché se llena con el tiempo: naranja al 70 % y roja al 90 %
   // envuelve mide lo mismo, así que aquí solo se comprueba el largo.
   await clock.advance(60_000)
   expect(await barOf(40)).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /frío/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /cold/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -490,14 +490,14 @@ test('MAIN lista los servidores MCP y los archivos con cambios', async ($, on) =
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
-  await has(/Contexto/)
+  await has(/Context/)
   await has(/MCP · 2/)
   await has(/● easel/)
   await has(/^1 tool$/)
   await has(/● engram/)
   await has(/^2 tools$/)
   // Los cambios se ven sin pasar a la pestaña GIT.
-  await has(/Cambios · 2/)
+  await has(/Changes · 2/)
   await has(/hooks\/register\.tsx/)
   await has(/\?\? notas\.md/)
   await ui.unmount()
@@ -555,14 +555,14 @@ test('GIT muestra remoto, stage y stash, y el botón abre lazygit', async ($, on
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
   await ui.press({ key: 'tab-git' })
-  await has(/Cambios · 3/)
+  await has(/Changes · 3/)
   await has(/↑2 ↓1/)
-  await has(/1 listos · 2 sin stage/)
+  await has(/1 staged · 2 unstaged/)
   await has(/^Stash · 3$/)
   await has(/a medias/)
   await ui.press({ key: 'lazygit' })
   expect(spawned).toEqual([['kitty', '-e', 'lazygit', '-p', '/tmp/demo']])
-  expect(toasts).toContain('lazygit abierto en kitty.')
+  expect(toasts).toContain('lazygit opened in kitty.')
   await ui.unmount()
 })
 
@@ -607,7 +607,7 @@ test('Cambios muestra las líneas por archivo y los totales', async ($, on) => {
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
-  await has(/Cambios · 3  \+12 −3/)
+  await has(/Changes · 3  \+12 −3/)
   await has(/^\+12$/)
   await has(/^−3$/)
   // El archivo sin seguimiento y el binario salen sin números.
@@ -634,7 +634,7 @@ test('sin commits el numstat falla y Cambios sale sin números', async ($, on) =
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /Cambios/ }))?.text).toBe('Cambios · 1')
+  expect((await ui.find({ type: 'Text', text: /Changes/ }))?.text).toBe('Changes · 1')
   await ui.unmount()
 })
 
@@ -716,7 +716,7 @@ test('el botón fetch hace git fetch con tope de 30 s y avisa', async ($, on) =>
   await ui.press({ key: 'tab-git' })
   await ui.press({ key: 'fetch' })
   expect(fetches).toEqual([{ argv: ['git', 'fetch'], timeoutMs: 30_000 }])
-  expect(toasts).toContain('Fetch hecho.')
+  expect(toasts).toContain('Fetch done.')
   await ui.unmount()
 })
 
@@ -766,7 +766,7 @@ test('un toast avisa una sola vez cuando al caché le queda 1 minuto', async ($,
   await clock.advance(200_000)
   expect(toasts).toEqual([])
   await clock.advance(50_000)
-  expect(toasts).toEqual(['El caché vence en 1:00.'])
+  expect(toasts).toEqual(['The cache expires in 1:00.'])
   await clock.advance(30_000)
   expect(toasts).toHaveLength(1)
   // Llega otra respuesta: el aviso se rearma.
@@ -790,7 +790,7 @@ test('con un caché de 1 h el aviso sale a los 5 minutos', { options: { cache: '
   await clock.advance(3_000_000)
   expect(toasts).toEqual([])
   await clock.advance(300_000)
-  expect(toasts).toEqual(['El caché vence en 5:00.'])
+  expect(toasts).toEqual(['The cache expires in 5:00.'])
 })
 
 test('con cacheAlert en off no hay toast', { options: { cacheAlert: 'off' } }, async ($, on) => {
@@ -841,31 +841,111 @@ test('Status muestra el tiempo de la sesión', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await clock.advance(95_000)
-  expect(await ui.find({ type: 'Text', text: /^Sesión$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Session$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^1:35$/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('el costo de Contexto lleva lo que subió el último turno', async ($, on) => {
-  baseEngine(on)
+/** Un motor falso cuyo inicio de sesión (`startedAt`) se puede cambiar, como en /resume. */
+const costEngine = (on: On) => {
+  const engine = { startedAt: 1 }
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/tmp/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.usage', () => ({
+    value: { startedAt: engine.startedAt, context: { window: 200_000 }, rateLimits: [] },
+  }))
   on('process.run', () => ({ value: { ...OK, exitCode: 128, stdout: '' } }))
   on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
   mock.clock(on, { now: 1_000_000 })
-  const usage = { startedAt: 0, context: { window: 200_000 }, rateLimits: [] }
+
+  return engine
+}
+
+const usageAt = (usd: number) => ({
+  context: { window: 200_000 },
+  rateLimits: [],
+  cost: { usd },
+  changed: ['cost' as const],
+})
+
+// bodyColumns 60 deja sitio para el costo y la diferencia.
+const mountWide = (ui: Parameters<TestBody>[0]['ui']) =>
+  ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 60 }, surface: 'terminal' })
+
+test('el costo de Contexto lleva lo que costó el último turno entero', async ($, on) => {
+  costEngine(on)
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.session.measure({ ...usage, cost: { usd: 1.213 }, changed: ['cost'] })
-  await $.session.measure({ ...usage, cost: { usd: 1.234 }, changed: ['cost'] })
+  await $.session.measure(usageAt(1))
+  await $.turn.start({ text: 'hola', turnId: 't1' })
+  // Varias mediciones dentro del mismo turno: el costo se acumula.
+  await $.session.measure(usageAt(1.05))
+  await $.session.measure(usageAt(1.12))
+  await $.session.measure(usageAt(1.234))
 
-  // bodyColumns 60 deja sitio para el costo y la diferencia.
-  const ui = await $.ui.mount({
-    ...PANE,
-    props: { ...PANE.props, bodyColumns: 60 },
-    surface: 'terminal',
-  })
+  const ui = await mountWide($.ui)
   expect(await ui.find({ type: 'Text', text: /\$1\.234/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^ \(\+\$0\.021\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ \(\+\$0\.234\)$/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('un turno nuevo reinicia el costo del último turno', async ($, on) => {
+  costEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'uno', turnId: 't1' })
+  await $.session.measure(usageAt(0.5))
+  await $.turn.start({ text: 'dos', turnId: 't2' })
+  await $.session.measure(usageAt(0.7))
+
+  const ui = await mountWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /^ \(\+\$0\.200\)$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\+\$0\.500/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('un turno de subagente no reinicia el costo del turno', async ($, on) => {
+  costEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure(usageAt(1))
+  await $.turn.start({ text: 'uno', turnId: 't1' })
+  await $.session.measure(usageAt(1.1))
+  await $.turn.start({ text: 'sub', turnId: 't2', agentId: 'a1' })
+  await $.session.measure(usageAt(1.3))
+
+  const ui = await mountWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /^ \(\+\$0\.300\)$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('si cambia el inicio de sesión del motor, el total nuevo no cuenta como costo de turno', async ($, on) => {
+  const engine = costEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure(usageAt(1))
+  await $.turn.start({ text: 'uno', turnId: 't1' })
+  await $.session.measure(usageAt(1.2))
+  // /resume: el motor pasa a otra sesión, con otro total.
+  engine.startedAt = 2
+  await $.session.measure(usageAt(11.2))
+
+  const ui = await mountWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /\$11\.200/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\(\+/ })).toBeUndefined()
+  await ui.unmount()
+
+  // El siguiente turno ya parte de la base nueva.
+  await $.turn.start({ text: 'dos', turnId: 't2' })
+  await $.session.measure(usageAt(11.5))
+  const again = await mountWide($.ui)
+  expect(await again.find({ type: 'Text', text: /^ \(\+\$0\.300\)$/ })).toBeDefined()
+  await again.unmount()
 })
 
 /** Un motor falso con límites, un servidor MCP y un archivo con cambios. */
@@ -896,9 +976,9 @@ const sectionsEngine = (on: On) => {
 }
 
 const SECTIONS = [
-  { option: 'showLimits', text: /^Límites$/ },
+  { option: 'showLimits', text: /^Limits$/ },
   { option: 'showMcp', text: /MCP · 1/ },
-  { option: 'showChanges', text: /Cambios · 1/ },
+  { option: 'showChanges', text: /Changes · 1/ },
 ] as const
 
 for (const one of SECTIONS) {
@@ -914,7 +994,7 @@ for (const one of SECTIONS) {
     }
     await ui.press({ key: 'tab-git' })
     // La pestaña GIT siempre muestra Cambios.
-    expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
     await ui.unmount()
   })
 }
@@ -974,11 +1054,11 @@ test('un MCP que deja de dar herramientas sale en rojo con ○', async ($, on) =
   await $.session.measure({ ...measure, changed: ['context'] })
 
   const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await again.find({ type: 'Text', text: /MCP · 1 de 2/ })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /MCP · 1 of 2/ })).toBeDefined()
   const down = await again.find({ type: 'Text', text: /engram/ })
   expect(down?.props?.color).toBe('error')
   expect(await again.find({ type: 'Text', text: /○ / })).toBeDefined()
-  expect(await again.find({ type: 'Text', text: /^sin herramientas$/ })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /^no tools$/ })).toBeDefined()
   expect(await again.find({ type: 'Text', text: /● / })).toBeDefined()
   await again.unmount()
 })
@@ -1013,11 +1093,11 @@ test('GIT agrupa los cambios en stage, sin stage y sin seguimiento', async ($, o
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
-  await has(/^Cambios · 5  \+9 −3$/)
+  await has(/^Changes · 5  \+9 −3$/)
   // 'MM' cuenta en los dos primeros grupos.
-  await has(/^En stage · 2$/)
-  await has(/^Sin stage · 2$/)
-  await has(/^Sin seguimiento · 2$/)
+  await has(/^Staged · 2$/)
+  await has(/^Unstaged · 2$/)
+  await has(/^Untracked · 2$/)
   await has(/^\+6 −2$/)
   await has(/^\+8 −3$/)
   await has(/listo\.ts/)
@@ -1033,8 +1113,8 @@ test('GIT no muestra los grupos vacíos y dice si no hay cambios', async ($, on)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /^Sin seguimiento · 1$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /En stage|Sin stage/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Untracked · 1$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Staged|Unstaged/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1044,8 +1124,8 @@ test('GIT con el árbol limpio dice Sin cambios pendientes', async ($, on) => {
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /Sin cambios pendientes\./ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /En stage|Sin stage|seguimiento/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /No pending changes\./ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Staged|Unstaged|Untracked/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1056,17 +1136,17 @@ test('GIT muestra 15 por grupo y "… y N más"; MAIN sigue en 6', async ($, on)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // MAIN: 6 archivos, lista plana y el total en el título.
-  expect(await ui.find({ type: 'Text', text: /^Cambios · 20$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Changes · 20$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /f5\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /f6\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^… y 14 más$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Sin stage/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^… and 14 more$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Unstaged/ })).toBeUndefined()
 
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /^Sin stage · 20$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Unstaged · 20$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /f14\.ts/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /f15\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^… y 5 más$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^… and 5 more$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1135,7 +1215,7 @@ test('el diff resumido guarda 20 líneas y dice cuántas faltan', async ($, on) 
   await ui.press({ key: 'unstaged:a.ts' })
   expect(await ui.find({ type: 'Text', text: /^\+línea 19$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\+línea 20$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^… y 7 líneas más$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^… and 7 more lines$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1160,7 +1240,7 @@ test('un binario o un diff vacío dicen Sin vista previa.', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
   await ui.press({ key: 'unstaged:foto.png' })
-  expect(await ui.find({ type: 'Text', text: /^Sin vista previa\.$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^No preview\.$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1184,7 +1264,7 @@ test('la tecla d abre el diff completo del último archivo desplegado, o avisa',
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
   await ui.press({ key: 'diff' })
-  expect(toasts).toContain('Despliega un archivo en GIT para ver su diff.')
+  expect(toasts).toContain('Expand a file in GIT to see its diff.')
   expect(spawned).toEqual([])
 
   await ui.press({ key: 'unstaged:a.ts' })
@@ -1264,9 +1344,9 @@ test('SESIONES lista las sesiones de la carpeta y despliega sus datos', async ($
     '/home/ana/.claude/projects/-home-ana-mi-proyecto',
   )
   // La vacía no sale; la que corre lleva "esta" y la otra su hora.
-  await has(/^Sesiones · 2$/)
+  await has(/^Sessions · 2$/)
   await has(/○ Pestaña de sesiones\s+1m$/)
-  await has(/● arregla el diff\s+esta$/)
+  await has(/● arregla el diff\s+this$/)
 
   expect(await ui.find({ type: 'Text', text: /agrega la pestaña/ })).toBeUndefined()
   await ui.press({ key: 'session:aaa' })
@@ -1331,7 +1411,7 @@ test('Resumir pide un resumen al modelo rápido con los prompts y lo guarda', as
   expect(requests[0]?.model).toBe('haiku')
   // Solo los prompts escritos del hilo principal, numerados.
   expect(requests[0]?.prompt).toBe(
-    'Título: Pestaña de sesiones\n\nPrompts:\n1. agrega una pestaña de sesiones\n2. ahora los resúmenes',
+    'Title: Pestaña de sesiones\n\nPrompts:\n1. agrega una pestaña de sesiones\n2. ahora los resúmenes',
   )
   expect(await ui.find({ type: 'Text', text: /^Se pidió una pestaña de sesiones\.$/ })).toBeDefined()
   expect(saved).toEqual([{ aaa: 'Se pidió una pestaña de sesiones.' }])
@@ -1366,8 +1446,8 @@ test('si el modelo no responde, Resumir avisa y no guarda nada', async ($, on) =
   await ui.press({ key: 'tab-sessions' })
   await ui.press({ key: 'session:aaa' })
   await ui.press({ key: 'summarize' })
-  expect(toasts).toContain('No se pudo resumir la sesión.')
-  expect(await ui.find({ type: 'Text', text: /Resumiendo/ })).toBeUndefined()
+  expect(toasts).toContain('Could not summarize the session.')
+  expect(await ui.find({ type: 'Text', text: /Summarizing/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1421,11 +1501,11 @@ const openSessions = async ($: Parameters<TestBody>[0], on: On, listing: string)
 
 test('el filtro de SESIONES deja las que coinciden y el título dice M de N', async ($, on) => {
   const { ui, has, lacks } = await openSessions($, on, SESSIONS_OUT)
-  await has(/^Sesiones · 2$/)
+  await has(/^Sessions · 2$/)
   expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
 
   await ui.input({ key: 'session-filter', text: 'diff' })
-  await has(/^Sesiones · 1 de 2$/)
+  await has(/^Sessions · 1 of 2$/)
   await has(/arregla el diff/)
   await lacks(/Pestaña de sesiones/)
   await ui.unmount()
@@ -1434,7 +1514,7 @@ test('el filtro de SESIONES deja las que coinciden y el título dice M de N', as
 test('el filtro no distingue mayúsculas ni acentos', async ($, on) => {
   const { ui, has } = await openSessions($, on, MANY_OUT)
   await ui.input({ key: 'session-filter', text: 'MIGRACION' })
-  await has(/^Sesiones · 1 de 15$/)
+  await has(/^Sessions · 1 of 15$/)
   await has(/Migración de la base/)
   await ui.unmount()
 })
@@ -1443,19 +1523,19 @@ test('el filtro pide todas las palabras, en cualquier orden, y mira el prompt', 
   const { ui, has, lacks } = await openSessions($, on, MANY_OUT)
   await ui.input({ key: 'session-filter', text: 'token login' })
   await has(/Fix del login/)
-  await has(/^Sesiones · 1 de 15$/)
+  await has(/^Sessions · 1 of 15$/)
 
   await ui.input({ key: 'session-filter', text: 'login migracion' })
   await lacks(/Fix del login/)
-  await has(/^Ninguna sesión coincide\.$/)
+  await has(/^No session matches\.$/)
   await ui.unmount()
 })
 
 test('sin coincidencias SESIONES dice que ninguna coincide', async ($, on) => {
   const { ui, has } = await openSessions($, on, SESSIONS_OUT)
   await ui.input({ key: 'session-filter', text: 'zzz' })
-  await has(/^Ninguna sesión coincide\.$/)
-  await has(/^Sesiones · 0 de 2$/)
+  await has(/^No session matches\.$/)
+  await has(/^Sessions · 0 of 2$/)
   await ui.unmount()
 })
 
@@ -1467,7 +1547,7 @@ test('Borrar filtro solo sale con consulta y devuelve la lista completa', async 
 
   await ui.press({ key: 'clear-filter' })
   expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
-  await has(/^Sesiones · 2$/)
+  await has(/^Sessions · 2$/)
   await has(/Pestaña de sesiones/)
   expect(await ui.find({ type: 'Input', key: 'session-filter' })).toMatchObject({ props: { value: '' } })
   await ui.unmount()
@@ -1475,7 +1555,7 @@ test('Borrar filtro solo sale con consulta y devuelve la lista completa', async 
 
 test('el filtro encuentra sesiones fuera de las 12 dibujadas', async ($, on) => {
   const { ui, has, lacks } = await openSessions($, on, MANY_OUT)
-  await has(/^Sesiones · 12$/)
+  await has(/^Sessions · 12$/)
   await lacks(/Migración de la base/)
 
   await ui.input({ key: 'session-filter', text: 'migración' })
@@ -1486,7 +1566,7 @@ test('el filtro encuentra sesiones fuera de las 12 dibujadas', async ($, on) => 
 test('Resumir sigue funcionando sobre la lista filtrada', async ($, on) => {
   const { ui, has } = await openSessions($, on, SESSIONS_OUT)
   await ui.input({ key: 'session-filter', text: 'pestaña' })
-  await has(/^Sesiones · 1 de 2$/)
+  await has(/^Sessions · 1 of 2$/)
   await ui.press({ key: 'session:aaa' })
   expect(await ui.find({ type: 'Button', key: 'summarize' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'resume' })).toBeDefined()
@@ -1582,16 +1662,16 @@ test('un Edit marca el archivo con ✦, cuenta en el título y el botón filtra'
   const lacks = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeUndefined()
 
-  await has(/^Cambios · 2 · 1 de Claude$/)
+  await has(/^Changes · 2 · 1 by Claude$/)
   await has(/^M ✦a\.ts$/)
   await has(/^M  b\.ts$/)
 
   await ui.press({ key: 'tab-git' })
   await has(/^M ✦a\.ts/)
   await has(/^M  b\.ts/)
-  expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('Solo de Claude')
+  expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('Claude only')
   await ui.press({ key: 'only-touched' })
-  expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('Todos')
+  expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('All')
   await has(/^M ✦a\.ts/)
   await lacks(/b\.ts/)
   await ui.press({ key: 'only-touched' })
@@ -1651,7 +1731,7 @@ test('GIT muestra el PR con su estado y los checks, y Abrir PR corre gh pr view 
   ])
   await has(/^Pull request$/)
   await has(/^#12 Añade la pestaña de sesiones$/)
-  await has(/^abierto · piden cambios$/)
+  await has(/^open · changes requested$/)
   // 3 en verde (build, lint, ci/legacy), 2 fallidos (test, ci/audit), 2 pendientes.
   const checks = await ui.find({ type: 'Text', text: /^✓ 3 ✗ 2 ● 2$/ })
   expect(checks?.props?.color).toBe('error')
@@ -1680,13 +1760,13 @@ test('una rama sin PR lo dice; si gh falla no se dibuja nada', async ($, on) => 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
   expect(await ui.find({ type: 'Text', text: /^Pull request$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Sin PR para esta rama\.$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^No PR for this branch\.$/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'open-pr' })).toBeUndefined()
 
   isNone = false
   await ui.press({ key: 'tab-main' })
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /Pull request|Sin PR/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Pull request|No PR/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1720,7 +1800,7 @@ test('el toast avisa cuando los checks del PR dejan de estar pendientes', async 
   ]
   await clock.advance(35_000)
   expect(reads).toBe(2)
-  expect(toasts).toContain('Checks del PR #7: todo en verde.')
+  expect(toasts).toContain('PR #7 checks: all green.')
   // Ya sin pendientes no se vuelve a leer por el reloj.
   await clock.advance(120_000)
   expect(reads).toBe(2)
@@ -1746,10 +1826,10 @@ test('un check que falla al terminar avisa cuántos fallaron', async ($, on) => 
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /^borrador$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^draft$/ })).toBeDefined()
   state = 'COMPLETED'
   await clock.advance(65_000)
-  expect(toasts).toContain('Checks del PR #3: fallaron 1.')
+  expect(toasts).toContain('PR #3 checks: 1 failed.')
   await ui.unmount()
 })
 
@@ -1893,14 +1973,14 @@ test('un worktree con cambios muestra su número y el actual no lanza otro git s
   await ui.unmount()
 })
 
-test('un worktree bloqueado lleva la marca bloqueado', async ($, on) => {
+test('un worktree locked lleva la marca locked', async ($, on) => {
   const porcelain = TREES.replace('detached\n', 'detached\nlocked razón de prueba\n')
   treesEngine(on, porcelain, () => ({ stdout: '' }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\) bloqueado\s+\/tmp\/demo-viejo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\) locked\s+\/tmp\/demo-viejo$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^○ fix\/uno\s+\/tmp\/demo-fix$/ })).toBeDefined()
   await ui.unmount()
 })
@@ -1912,12 +1992,12 @@ test('un worktree prunable lleva la marca, no corre git status y al pulsarlo avi
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
-  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\) no existe\s+\/tmp\/demo-viejo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^○ \(cccccccc?\) missing\s+\/tmp\/demo-viejo$/ })).toBeDefined()
   expect(treesStatus(runs)).not.toContain('/tmp/demo-viejo')
 
   await ui.press({ key: 'worktree:/tmp/demo-viejo' })
   expect(spawned).toEqual([])
-  expect(toasts.some(text => /ya no existe en disco: pulsa Limpiar \(w\)/.test(text))).toBe(true)
+  expect(toasts.some(text => /no longer exists on disk: press Prune \(w\)/.test(text))).toBe(true)
   await ui.unmount()
 })
 
@@ -1929,12 +2009,12 @@ test('con un worktree prunable sale Limpiar y al pulsarlo corre git worktree pru
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
-  expect((await ui.find({ type: 'Button', key: 'prune' }))?.props?.label).toBe('Limpiar')
+  expect((await ui.find({ type: 'Button', key: 'prune' }))?.props?.label).toBe('Prune')
 
   await ui.press({ key: 'prune' })
   const prunes = runs.filter(run => run.argv.includes('prune'))
   expect(prunes.map(run => run.argv)).toEqual([['git', 'worktree', 'prune']])
-  expect(toasts).toContain('Worktrees limpiados.')
+  expect(toasts).toContain('Worktrees pruned.')
   await ui.unmount()
 })
 
@@ -1956,7 +2036,7 @@ test('si git worktree prune falla, el toast lleva el motivo', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'tab-git' })
   await ui.press({ key: 'prune' })
-  expect(toasts).toContain('No se pudieron limpiar los worktrees: fatal: algo')
+  expect(toasts).toContain('Could not prune the worktrees: fatal: algo')
   await ui.unmount()
 })
 
@@ -2015,7 +2095,7 @@ test('Status muestra el modo de permisos: plan en naranja, sin permisos en rojo'
 
   expect(asked[0]?.at(-1)).toBe('/.claude/projects/-tmp-demo/abc.jsonl')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^Modo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Mode$/ })).toBeDefined()
   const mode = await ui.find({ type: 'Text', text: /^plan$/ })
   expect(mode?.props?.color).toBe('warning')
   await ui.unmount()
@@ -2026,8 +2106,8 @@ test('sin registro de modo, o con una transcripción que no es JSON, no hay fila
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^Modo$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Modelo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Mode$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Model$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -2038,7 +2118,7 @@ test('el modo bypassPermissions sale en rojo como "sin permisos"', async ($, on)
   await $.turn.complete(turn(undefined, 0, 10))
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const mode = await ui.find({ type: 'Text', text: /^sin permisos$/ })
+  const mode = await ui.find({ type: 'Text', text: /^bypass permissions$/ })
   expect(mode?.props?.color).toBe('error')
   await ui.unmount()
 })
@@ -2052,9 +2132,9 @@ test('Status muestra el nivel de esfuerzo de la última petición del hilo princ
 
   expect(asked.some(argv => argv[2]?.includes('api-request'))).toBe(true)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^Esfuerzo$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^muy alto$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Modo$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Effort$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^extra high$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Mode$/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -2063,8 +2143,8 @@ test('sin petición con esfuerzo en la transcripción no hay fila Esfuerzo', asy
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /^Esfuerzo$/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Modelo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Effort$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Model$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -2139,7 +2219,7 @@ test('GIT lista los stash con el mensaje limpio y el total en el título', async
 test('GIT no muestra la sección Stash sin stash', async ($, on) => {
   const { ui } = await stashEngine($, on, () => ({ stdout: '' }))
 
-  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Stash/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -2169,7 +2249,7 @@ test('un stash que ya no existe al leerlo muestra un texto atenuado', async ($, 
   )
 
   await ui.press({ key: 'stash:stash@{0}' })
-  expect(await ui.find({ type: 'Text', text: /Ese stash ya no existe/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /That stash no longer exists/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -2183,14 +2263,14 @@ test('con más stash que el tope, el título lleva el total y solo se listan los
   expect(await ui.find({ type: 'Text', text: /^Stash · 11$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /guardado 7/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /guardado 8/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^… y 3 más$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^… and 3 more$/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('si git stash list falla, GIT se dibuja sin la sección', async ($, on) => {
   const { ui } = await stashEngine($, on, () => ({ exitCode: 128, stdout: STASH_LIST }))
 
-  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Stash/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -2232,11 +2312,11 @@ test('GIT lista las ramas con la actual marcada y su estado respecto a la remota
     '--format=%(refname:short)%09%(committerdate:unix)%09%(upstream:short)%09%(upstream:track)',
     'refs/heads',
   ])
-  expect(await ui.find({ type: 'Text', text: /^Ramas · 3$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Branches · 3$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^● $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^○ $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /↑2 ↓1/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /sin remota/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /no upstream/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -2245,15 +2325,15 @@ test('una rama con la remota borrada muestra remota borrada', async ($, on) => {
     stdout: 'main\t999000\torigin/main\t\nvieja\t990000\torigin/vieja\t[gone]\n',
   }))
 
-  expect(await ui.find({ type: 'Text', text: /remota borrada/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /upstream gone/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('con una sola rama GIT no muestra la sección Ramas', async ($, on) => {
   const { ui } = await branchEngine($, on, () => ({ stdout: 'main\t999000\torigin/main\t\n' }))
 
-  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Ramas/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Branches/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -2264,17 +2344,17 @@ test('con más ramas que el tope, el título lleva el total y solo se listan las
   ).join('')
   const { ui } = await branchEngine($, on, () => ({ stdout: many }))
 
-  expect(await ui.find({ type: 'Text', text: /^Ramas · 11$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Branches · 11$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /rama-7/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /rama-8/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^… y 3 más$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^… and 3 more$/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('si git for-each-ref falla, GIT se dibuja sin la sección Ramas', async ($, on) => {
   const { ui } = await branchEngine($, on, () => ({ exitCode: 128, stdout: BRANCH_LIST }))
 
-  expect(await ui.find({ type: 'Text', text: /Cambios · 1/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^Ramas/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Branches/ })).toBeUndefined()
   await ui.unmount()
 })

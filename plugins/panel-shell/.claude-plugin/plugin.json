@@ -1,6 +1,6 @@
 {
   "name": "panel-shell",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Panel for Claude Code: folder, git with lazygit, context, cache, limits, MCP, subagents, tasks and past sessions",
   "author": {
     "name": "Jose Luis Yana"
@@ -44,7 +44,7 @@
     "terminal": {
       "type": "string",
       "title": "Terminal for windows",
-      "description": "Which terminal opens lazygit, Ver diff and Reanudar. \"auto\" uses $TERMINAL or the first one installed; inside tmux they always open in a popup.",
+      "description": "Which terminal opens lazygit, View diff and Resume. \"auto\" uses $TERMINAL or the first one installed; inside tmux they always open in a popup.",
       "options": [
         "auto",
         "ghostty",
@@ -61,8 +61,8 @@
     },
     "showLimits": {
       "type": "string",
-      "title": "Show Límites",
-      "description": "Shows the Límites section on the MAIN tab.",
+      "title": "Show Limits",
+      "description": "Shows the Limits section on the MAIN tab.",
       "options": [
         "on",
         "off"
@@ -91,8 +91,8 @@
     },
     "showChanges": {
       "type": "string",
-      "title": "Show Cambios",
-      "description": "Shows the Cambios section on the MAIN tab. The GIT tab always shows Cambios.",
+      "title": "Show Changes",
+      "description": "Shows the Changes section on the MAIN tab. The GIT tab always shows Changes.",
       "options": [
         "on",
         "off"
