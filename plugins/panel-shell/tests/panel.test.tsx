@@ -1298,7 +1298,7 @@ const SESSIONS_OUT = [
 ].join('\n')
 
 /** Un motor falso con sesiones guardadas; guarda cada comando `sh` pedido. */
-const sessionsEngine = (on: On, prompts = '', listing = SESSIONS_OUT) => {
+const sessionsEngine = (on: On, prompts = '', listing = SESSIONS_OUT, now = 1_000_000) => {
   const asked: (readonly string[])[] = []
   on('command.register', () => ({ value: { command: 'panel' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -1308,7 +1308,7 @@ const sessionsEngine = (on: On, prompts = '', listing = SESSIONS_OUT) => {
   on('session.usage', () => ({
     value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
   }))
-  mock.clock(on, { now: 1_000_000 })
+  mock.clock(on, { now })
   on('session.root', () => ({ value: '/home/ana/mi proyecto' }))
   on('session.id', () => ({ value: 'bbb' }))
   on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/ana' : undefined }))
@@ -1344,8 +1344,8 @@ test('SESIONES lista las sesiones de la carpeta y despliega sus datos', async ($
     '/home/ana/.claude/projects/-home-ana-mi-proyecto',
   )
   // La vacía no sale; la que corre lleva "esta" y la otra su hora.
-  await has(/^Sessions · 2$/)
-  await has(/○ Pestaña de sesiones\s+1m$/)
+  await has(/^Sessions · 2(?: · |$)/)
+  await has(/○ Pestaña de sesiones\s+\$1\.82 · 1m$/)
   await has(/● arregla el diff\s+this$/)
 
   expect(await ui.find({ type: 'Text', text: /agrega la pestaña/ })).toBeUndefined()
@@ -1501,11 +1501,11 @@ const openSessions = async ($: Parameters<TestBody>[0], on: On, listing: string)
 
 test('el filtro de SESIONES deja las que coinciden y el título dice M de N', async ($, on) => {
   const { ui, has, lacks } = await openSessions($, on, SESSIONS_OUT)
-  await has(/^Sessions · 2$/)
+  await has(/^Sessions · 2(?: · |$)/)
   expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
 
   await ui.input({ key: 'session-filter', text: 'diff' })
-  await has(/^Sessions · 1 of 2$/)
+  await has(/^Sessions · 1 of 2(?: · |$)/)
   await has(/arregla el diff/)
   await lacks(/Pestaña de sesiones/)
   await ui.unmount()
@@ -1514,7 +1514,7 @@ test('el filtro de SESIONES deja las que coinciden y el título dice M de N', as
 test('el filtro no distingue mayúsculas ni acentos', async ($, on) => {
   const { ui, has } = await openSessions($, on, MANY_OUT)
   await ui.input({ key: 'session-filter', text: 'MIGRACION' })
-  await has(/^Sessions · 1 of 15$/)
+  await has(/^Sessions · 1 of 15(?: · |$)/)
   await has(/Migración de la base/)
   await ui.unmount()
 })
@@ -1523,7 +1523,7 @@ test('el filtro pide todas las palabras, en cualquier orden, y mira el prompt', 
   const { ui, has, lacks } = await openSessions($, on, MANY_OUT)
   await ui.input({ key: 'session-filter', text: 'token login' })
   await has(/Fix del login/)
-  await has(/^Sessions · 1 of 15$/)
+  await has(/^Sessions · 1 of 15(?: · |$)/)
 
   await ui.input({ key: 'session-filter', text: 'login migracion' })
   await lacks(/Fix del login/)
@@ -1535,7 +1535,7 @@ test('sin coincidencias SESIONES dice que ninguna coincide', async ($, on) => {
   const { ui, has } = await openSessions($, on, SESSIONS_OUT)
   await ui.input({ key: 'session-filter', text: 'zzz' })
   await has(/^No session matches\.$/)
-  await has(/^Sessions · 0 of 2$/)
+  await has(/^Sessions · 0 of 2(?: · |$)/)
   await ui.unmount()
 })
 
@@ -1547,7 +1547,7 @@ test('Borrar filtro solo sale con consulta y devuelve la lista completa', async 
 
   await ui.press({ key: 'clear-filter' })
   expect(await ui.find({ type: 'Button', key: 'clear-filter' })).toBeUndefined()
-  await has(/^Sessions · 2$/)
+  await has(/^Sessions · 2(?: · |$)/)
   await has(/Pestaña de sesiones/)
   expect(await ui.find({ type: 'Input', key: 'session-filter' })).toMatchObject({ props: { value: '' } })
   await ui.unmount()
@@ -1555,7 +1555,7 @@ test('Borrar filtro solo sale con consulta y devuelve la lista completa', async 
 
 test('el filtro encuentra sesiones fuera de las 12 dibujadas', async ($, on) => {
   const { ui, has, lacks } = await openSessions($, on, MANY_OUT)
-  await has(/^Sessions · 12$/)
+  await has(/^Sessions · 12(?: · |$)/)
   await lacks(/Migración de la base/)
 
   await ui.input({ key: 'session-filter', text: 'migración' })
@@ -1566,7 +1566,7 @@ test('el filtro encuentra sesiones fuera de las 12 dibujadas', async ($, on) => 
 test('Resumir sigue funcionando sobre la lista filtrada', async ($, on) => {
   const { ui, has } = await openSessions($, on, SESSIONS_OUT)
   await ui.input({ key: 'session-filter', text: 'pestaña' })
-  await has(/^Sessions · 1 of 2$/)
+  await has(/^Sessions · 1 of 2(?: · |$)/)
   await ui.press({ key: 'session:aaa' })
   expect(await ui.find({ type: 'Button', key: 'summarize' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'resume' })).toBeDefined()
@@ -2357,4 +2357,185 @@ test('si git for-each-ref falla, GIT se dibuja sin la sección Ramas', async ($,
   expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Branches/ })).toBeUndefined()
   await ui.unmount()
+})
+
+/** El `cost-state` de una transcripción, con el costo de cada modelo. */
+const costState = (usage: Record<string, number>) =>
+  `{"type":"cost-state","totalCostUSD":2,"modelUsage":${JSON.stringify(
+    Object.fromEntries(Object.entries(usage).map(([id, costUSD]) => [id, { costUSD }])),
+  )}}`
+
+const mountVeryWide = (ui: Parameters<TestBody>[0]['ui']) =>
+  ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 120 }, surface: 'terminal' })
+
+test('MAIN muestra el costo por modelo, del mayor al menor, con nombres cortos', async ($, on) => {
+  modeEngine(
+    on,
+    costState({
+      'claude-sonnet-5-5': 0.3,
+      'claude-opus-5-5': 1.2,
+      'claude-haiku-4-5-20251001': 0.004,
+      'claude-fable-5-2': 0.5,
+      'modelo-raro': 0.02,
+    }),
+  )
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await mountVeryWide($.ui)
+  // Haiku costó menos de un centavo: se omite; el id desconocido sale tal cual.
+  expect(
+    await ui.find({
+      type: 'Text',
+      text: /^Opus 5\.5 \$1\.20 · Fable 5\.2 \$0\.50 · Sonnet 5\.5 \$0\.30 · modelo-raro \$0\.02$/,
+    }),
+  ).toBeDefined()
+  await ui.unmount()
+})
+
+test('con un solo modelo, o sin cost-state, no sale la línea por modelo', async ($, on) => {
+  modeEngine(on, costState({ 'claude-opus-5-5': 1.2, 'claude-haiku-4-5': 0.001 }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await mountVeryWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /Opus 5\.5/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('SESIONES lleva el costo de cada fila y los totales de hoy y 7 días', async ($, on) => {
+  const now = new Date(2026, 5, 15, 12, 0, 0).getTime()
+  const sec = (ms: number) => Math.floor((now - ms) / 1000)
+  const cost = (usd: number) => `{"type":"cost-state","totalCostUSD":${usd}}`
+  const listing = [
+    `F\ta.jsonl\t${sec(3_600_000)}`,
+    '{"type":"ai-title","aiTitle":"Hoy"}',
+    cost(0.5),
+    `F\tb.jsonl\t${sec(3 * 86_400_000)}`,
+    '{"type":"ai-title","aiTitle":"Hace tres días"}',
+    cost(1.25),
+    `F\tc.jsonl\t${sec(10 * 86_400_000)}`,
+    '{"type":"ai-title","aiTitle":"Hace diez días"}',
+    cost(2),
+    `F\td.jsonl\t${sec(1_800_000)}`,
+    '{"type":"ai-title","aiTitle":"Sin gasto"}',
+    cost(0),
+    '',
+  ].join('\n')
+  const asked = sessionsEngine(on, '', listing, now)
+  on('store.get', () => ({ value: undefined }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  // Un solo proceso `sh` para todas las sesiones.
+  expect(asked.filter(argv => argv[2]?.includes('ls -t'))).toHaveLength(1)
+  // Solo cuentan las escaneadas: hoy 0.50, a 7 días 0.50 + 1.25.
+  await has(/^Sessions · 4 · today \$0\.50 · 7d \$1\.75$/)
+  await has(/○ Hoy\s+\$0\.50 · 1h$/)
+  await has(/○ Hace diez días\s+\$2\.00 · 10d$/)
+  // Sin gasto no hay costo en la fila.
+  await has(/○ Sin gasto\s+30m$/)
+
+  // El filtro sigue funcionando y el título conserva los totales.
+  await ui.input({ key: 'session-filter', text: 'tres' })
+  await has(/^Sessions · 1 of 4 · today/)
+  await ui.unmount()
+})
+
+/** Un motor falso para los avisos nativos; guarda cada `ui.notify` y `ui.cancelNotify`. */
+const notifyEngine = (on: On, rejects = false) => {
+  const sent: { text: string; options: Record<string, unknown> | undefined }[] = []
+  const cancelled: string[] = []
+  costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('ui.notify', (_, e) => {
+    sent.push({ text: e.text, options: { title: e.title, key: e.key, delayMs: e.delayMs, untilBack: e.untilBack } })
+    if (rejects) throw new Error('sin canal')
+
+    return { value: { isSent: true, channel: 'client' } }
+  })
+  on('ui.cancelNotify', (_, e) => {
+    cancelled.push(e.key)
+
+    return { value: { isSent: true } }
+  })
+
+  return { sent, cancelled }
+}
+
+const finish = (durationMs: number, agentId?: string) =>
+  ({
+    answer: 'listo',
+    durationMs,
+    isAborted: false,
+    turnId: 't',
+    reason: 'answer',
+    ...(agentId === undefined ? {} : { agentId }),
+  }) as const
+
+test('un turno largo del hilo principal avisa con la duración y el costo', async ($, on) => {
+  const { sent } = notifyEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'hola', turnId: 't' })
+  await $.session.measure(usageAt(0.42))
+  await $.turn.complete(finish(125_000))
+
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.text).toBe('Turn finished in 2m 05s ($0.42)')
+  expect(sent[0]?.options).toMatchObject({ title: 'demo', key: 'turn' })
+})
+
+test('un turno corto o de subagente no avisa', async ($, on) => {
+  const { sent } = notifyEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(finish(59_000))
+  await $.turn.complete(finish(60_000))
+  await $.turn.complete(finish(300_000, 'a1'))
+  expect(sent).toEqual([])
+})
+
+test('con notify en off un turno largo no avisa', { options: { notify: 'off' } }, async ($, on) => {
+  const { sent } = notifyEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(finish(300_000))
+  expect(sent).toEqual([])
+})
+
+test('notifyAfter cambia desde cuándo un turno es largo', { options: { notifyAfter: 10 } }, async ($, on) => {
+  const { sent } = notifyEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(finish(11_000))
+  expect(sent.map(one => one.text)).toEqual(['Turn finished in 11s'])
+})
+
+test('si ui.notify rechaza, el turno termina igual', async ($, on) => {
+  const { sent } = notifyEngine(on, true)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(finish(120_000))
+  expect(sent).toHaveLength(1)
+})
+
+test('con notify en all, el caché por vencer se programa y un turno nuevo lo cancela', { options: { notify: 'all' } }, async ($, on) => {
+  const { sent, cancelled } = notifyEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure({
+    context: { tokens: 50_000, window: 200_000, percent: 25 },
+    rateLimits: [],
+    changed: ['context' as const],
+  })
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.text).toBe('The cache expires in 1:00.')
+  expect(sent[0]?.options).toMatchObject({ key: 'cache', delayMs: 240_000, untilBack: true })
+
+  cancelled.length = 0
+  await $.turn.start({ text: 'otra', turnId: 't2' })
+  expect(cancelled).toEqual(['cache'])
 })

@@ -140,7 +140,7 @@ La interfaz del panel está en inglés: los nombres de pestañas, secciones, bot
 #### MAIN
 
 - **Status** (estado): carpeta, rama, modelo, esfuerzo, modo de permisos y duración de la sesión.
-- **Context** (contexto): barra, tokens y costo (`Cost`). Junto al total, `(+$X)` es el costo del último turno entero (todas sus llamadas a la API, subagentes incluidos); se queda hasta que empieza el siguiente turno y se descarta tras `/resume` o `/clear`.
+- **Context** (contexto): barra, tokens y costo (`Cost`). Junto al total, `(+$X)` es el costo del último turno entero (todas sus llamadas a la API, subagentes incluidos); se queda hasta que empieza el siguiente turno y se descarta tras `/resume` o `/clear`. Bajo el total, una línea tenue muestra el costo por modelo (por ejemplo `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), del más al menos caro. Se lee de la transcripción, omite los modelos de menos de $0.01 y se oculta si queda uno solo.
 - **Cache** (caché): cuenta regresiva y barra que pasa a naranja al 70 % y a roja al 90 %. Muestra el porcentaje leído del caché. Avisa en un toast antes de que venza.
 - **Limits** (límites de uso): 5 hours, week y spend.
 - **MCP:** los servidores; los que dejan de aportar herramientas salen en rojo.
@@ -200,7 +200,7 @@ Stash:
 
 #### SESSIONS
 
-- **Sessions** (sesiones): las últimas sesiones de Claude Code en esta carpeta, con su título y hace cuánto se usaron.
+- **Sessions** (sesiones): las últimas sesiones de Claude Code en esta carpeta, con su título, su costo (si es mayor que cero) y hace cuánto se usaron. El título añade `today $X · 7d $Y`: el costo de las sesiones escaneadas según su fecha de modificación (solo las 30 más recientes, no todo el historial).
 - **Detalle:** pulsa una para ver su último prompt, costo, duración y líneas cambiadas.
 - **`Summarize`** (resumir, `s`): pide un resumen de 2 o 3 frases al modelo rápido. Lo escribe en el idioma de los prompts de la sesión, sea cual sea. Es una llamada pequeña que suma al costo. El resumen queda guardado.
 - **`Resume`** (reanudar, `r`): abre la sesión con `claude --resume` en una ventana aparte.
@@ -211,7 +211,17 @@ Stash:
 
 - **Al iniciar:** el panel se abre solo.
 - **Comandos:** `/panel` lo abre y `/panel close` lo cierra. Hay más detalle en [Comandos y atajos](#comandos-y-atajos-de-panel-shell).
-- **`/config`:** ahí eliges el color, la duración del caché (por defecto la lee de `promptCacheTtl`), el aviso de vencimiento, la terminal de las ventanas (lazygit, `View diff` y `Resume`), qué secciones de MAIN se muestran y si GIT muestra el Pull request (`showPr`). Otras formas de fijarlas, en [Configurar al instalar](#configurar-al-instalar).
+- **`/config`:** ahí eliges el color, la duración del caché (por defecto la lee de `promptCacheTtl`), el aviso de vencimiento, la terminal de las ventanas (lazygit, `View diff` y `Resume`), qué secciones de MAIN se muestran si GIT muestra el Pull request (`showPr`), las notificaciones (`notify`) y cuánto debe durar un turno para ser largo (`notifyAfter`, 60 segundos por defecto). Otras formas de fijarlas, en [Configurar al instalar](#configurar-al-instalar).
+
+#### Notificaciones
+
+El panel también puede mandar notificaciones nativas (fuera del panel, para cuando estás en otra ventana). Su título es el de la sesión, o el nombre de la carpeta si no lo tiene. `notify` en `/config` elige cuáles:
+
+- **`long`** (por defecto): solo cuando un turno del hilo principal dura más de `notifyAfter` segundos, como `Turn finished in 2m 05s ($0.42)`. Los turnos de subagentes y los cancelados no avisan.
+- **`all`**: ese aviso más los checks del PR al terminar y el caché por vencer (solo si te alejaste de la sesión; se cancela al empezar un turno nuevo o al renovarse el caché).
+- **`off`**: ninguna.
+
+Si la terminal o el cliente no pueden mostrarlas, no pasa nada: el panel sigue funcionando.
 
 ### Comandos y atajos de panel-shell
 

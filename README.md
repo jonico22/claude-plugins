@@ -140,7 +140,7 @@ To turn it off without uninstalling: `claude plugin disable panel-shell@jonico22
 #### MAIN
 
 - **Status:** folder, branch, model, effort, permission mode and session duration.
-- **Context:** bar, tokens and cost. Next to the total, `(+$X)` is the cost of the whole last turn (every API call in it, subagents included); it stays until the next turn starts and is dropped after `/resume` or `/clear`.
+- **Context:** bar, tokens and cost. Next to the total, `(+$X)` is the cost of the whole last turn (every API call in it, subagents included); it stays until the next turn starts and is dropped after `/resume` or `/clear`. Under the total, a dim line shows the cost per model (for example `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), from the most to the least expensive. It is read from the transcript, leaves out models under $0.01 and hides when only one model is left.
 - **Cache:** countdown and a bar that turns orange at 70% and red at 90%. It shows the percentage read from the cache. It warns you with a toast before it expires.
 - **Limits:** the usage limits (5 hours, week, spend).
 - **MCP:** the servers; the ones that stop providing tools show in red.
@@ -200,7 +200,7 @@ Stash:
 
 #### SESSIONS
 
-- **Sessions:** the latest Claude Code sessions in this folder, with their title and how long ago they were used.
+- **Sessions:** the latest Claude Code sessions in this folder, with their title, their cost (when it is above zero) and how long ago they were used. The title adds `today $X · 7d $Y`, the cost of the scanned sessions by the date they were last modified (only the 30 most recent, not the whole history).
 - **Detail:** click one to see its last prompt, cost, duration and changed lines.
 - **`Summarize`** (`s`): asks the fast model for a 2 or 3 sentence summary, written in the language of the session's prompts. It is a small call that adds to the cost. The summary is saved.
 - **`Resume`** (`r`): opens the session with `claude --resume` in a separate window.
@@ -211,7 +211,17 @@ Stash:
 
 - **On start:** the panel opens by itself.
 - **Commands:** `/panel` opens it and `/panel close` closes it. There is more detail in [Commands and shortcuts](#commands-and-shortcuts-of-panel-shell).
-- **`/config`:** there you choose the color, the cache duration (by default it reads it from `promptCacheTtl`), the expiry warning, the terminal for the windows (lazygit, `View diff` and `Resume`), which MAIN sections are shown and whether GIT shows the Pull request (`showPr`). Other ways to set them are in [Configure on install](#configure-on-install).
+- **`/config`:** there you choose the color, the cache duration (by default it reads it from `promptCacheTtl`), the expiry warning, the terminal for the windows (lazygit, `View diff` and `Resume`), which MAIN sections are shown and whether GIT shows the Pull request (`showPr`), the notifications (`notify`) and how long a turn must last to count as long (`notifyAfter`, 60 seconds by default). Other ways to set them are in [Configure on install](#configure-on-install).
+
+#### Notifications
+
+The panel can also send native notifications (outside the panel, for when you are in another window). Their title is the session's title, or the folder name if it has none. `notify` in `/config` chooses which ones:
+
+- **`long`** (default): only when a main-thread turn lasts longer than `notifyAfter` seconds, as `Turn finished in 2m 05s ($0.42)`. Subagent turns and cancelled turns don't notify.
+- **`all`**: that one plus the PR checks finishing and the cache about to expire (only if you are away from the session; it is cancelled when a new turn starts or the cache is renewed).
+- **`off`**: none.
+
+If the terminal or the client can't raise them, nothing happens: the panel keeps working.
 
 ### Commands and shortcuts of panel-shell
 

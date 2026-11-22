@@ -9,6 +9,7 @@ import type {
   PanelInfo,
   PanelLimit,
   PanelMcp,
+  PanelModelCost,
   PanelPast,
   PanelPr,
   PanelSession,
@@ -66,6 +67,10 @@ const session = atom(
   { startedAt: null, engineStartedAt: null, usd: null, turnStartUsd: null, turnUsd: null },
   { shape: 'session-2' },
 )
+// El costo por modelo del último `cost-state` de la transcripción; vacío si no se sabe.
+const modelCosts = atom({ plugin: 'panel-shell', key: 'modelCosts' } as const, [], {
+  shape: 'modelCosts-1',
+})
 // La hora del reloj del panel; cada cambio redibuja las cuentas regresivas.
 const clock = atom({ plugin: 'panel-shell', key: 'now' } as const, 0)
 
@@ -108,7 +113,7 @@ const stashStat = atom({ plugin: 'panel-shell', key: 'stashStat' } as const, {},
 
 // Las sesiones guardadas de esta carpeta; null hasta que se abre la pestaña.
 const sessions = atom({ plugin: 'panel-shell', key: 'sessions' } as const, null, {
-  shape: 'sessions-2',
+  shape: 'sessions-3',
 })
 // Lo que se escribió en el filtro de SESIONES; vacío si no hay filtro.
 const sessionQuery = atom({ plugin: 'panel-shell', key: 'sessionQuery' } as const, '')
@@ -227,6 +232,86 @@ const countdown = (ms: number): string => {
   if (hours >= 1) return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`
 
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/** 45_000 -> "45s", 125_000 -> "2m 05s", 3_720_000 -> "1h 02m". */
+const spanText = (ms: number): string => {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  const minutes = Math.floor(seconds / 60)
+  if (minutes >= 60) {
+    return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+  }
+  if (minutes >= 1) return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`
+
+  return `${seconds}s`
+}
+
+/**
+ * El nombre corto de un modelo: `claude-opus-5-5` -> "Opus 5.5",
+ * `claude-haiku-4-5-20251001` -> "Haiku 4.5", `claude-3-5-sonnet-20241022` ->
+ * "Sonnet 3.5". Un id que no reconoce se devuelve tal cual.
+ */
+function shortModel(id: string): string {
+  const name = (word: string) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`
+  // Sin la fecha de la versión ni el sufijo `-latest`.
+  const bare = id.replace(/-(\d{8}|latest)$/, '')
+  const modern = /^claude-([a-z]+)((?:-\d+)*)$/.exec(bare)
+  if (modern?.[1] !== undefined) {
+    const version = (modern[2] ?? '').split('-').filter(part => part !== '').join('.')
+
+    return version === '' ? name(modern[1]) : `${name(modern[1])} ${version}`
+  }
+  const legacy = /^claude-(\d+(?:-\d+)*)-([a-z]+)$/.exec(bare)
+  if (legacy?.[1] !== undefined && legacy[2] !== undefined) {
+    return `${name(legacy[2])} ${legacy[1].replace(/-/g, '.')}`
+  }
+
+  return id
+}
+
+/**
+ * Los costos por modelo de un registro `cost-state` (su `modelUsage`), del más
+ * caro al más barato, sin los de menos de un centavo. Sin datos, vacío.
+ */
+function modelCostsOf(record: Record<string, unknown> | null): PanelModelCost[] {
+  const usage = record?.['type'] === 'cost-state' ? record['modelUsage'] : null
+  if (typeof usage !== 'object' || usage === null) return []
+
+  const costs: PanelModelCost[] = []
+  for (const [id, one] of Object.entries(usage)) {
+    const usd =
+      typeof one === 'object' && one !== null
+        ? numberOf((one as Record<string, unknown>)['costUSD'])
+        : undefined
+    if (usd !== undefined && usd >= 0.01) costs.push({ name: shortModel(id), usd })
+  }
+
+  return costs.sort((a, b) => b.usd - a.usd)
+}
+
+/** La línea "Opus 5.5 $1.20 · Sonnet 5.5 $0.30"; vacía si hay menos de dos modelos. */
+const modelLine = (costs: PanelModelCost[]): string =>
+  costs.length < 2 ? '' : costs.map(one => `${one.name} $${one.usd.toFixed(2)}`).join(' · ')
+
+/**
+ * Lo gastado hoy (desde la medianoche local) y en los últimos 7 días, por la
+ * fecha de modificación de cada sesión. Solo suma las sesiones escaneadas (las
+ * SESSION_SCAN más recientes de esta carpeta), no todo el historial.
+ */
+function costTotals(rows: PanelPast[], nowMs: number) {
+  const midnight = new Date(nowMs)
+  midnight.setHours(0, 0, 0, 0)
+  let today = 0
+  let week = 0
+  for (const one of rows) {
+    if (one.usd === undefined || one.usd <= 0) continue
+
+    const at = one.at * 1000
+    if (at >= midnight.getTime()) today += one.usd
+    if (at >= nowMs - 7 * 86_400_000) week += one.usd
+  }
+
+  return { today, week }
 }
 
 const LIMIT_NAMES: Record<string, string> = {
@@ -857,7 +942,8 @@ async function readSessions($: EngineInterface) {
         const durationMs = numberOf(record['totalDuration'])
         const added = numberOf(record['totalLinesAdded'])
         const removed = numberOf(record['totalLinesRemoved'])
-        if (usd !== undefined) row.usd = usd
+        // Una sesión sin gasto no lleva costo.
+        if (usd !== undefined && usd > 0) row.usd = usd
         if (durationMs !== undefined) row.durationMs = durationMs
         if (added !== undefined) row.added = added
         if (removed !== undefined) row.removed = removed
@@ -1141,10 +1227,30 @@ const inputTotal = (usage: {
   usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
 
 /** Anota que acaba de llegar una respuesta: el caché vuelve a empezar. */
-const touchCache = async ($: EngineInterface) => {
+const touchCache = async (
+  $: EngineInterface,
+  chosen?: number,
+  isAlertOn = false,
+) => {
   const at = await $.clock.now()
   await update($, cache, () => ({ at, isAlerted: false }))
   await update($, clock, () => at)
+  if (notifyMode !== 'all') return
+
+  // El caché se renovó: el aviso anterior ya no vale. El nuevo se programa para
+  // el momento en que sale el toast, y solo suena si la persona se fue.
+  await cancelCacheNotice($)
+  if (!isAlertOn) return
+
+  const cacheMs = await cacheDuration($, chosen)
+  const warnMs = cacheMs >= 3_600_000 ? ALERT_LONG_MS : ALERT_SHORT_MS
+  if (cacheMs - warnMs <= 0) return
+
+  await notifyUser($, `The cache expires in ${countdown(warnMs)}.`, {
+    key: 'cache',
+    delayMs: cacheMs - warnMs,
+    untilBack: true,
+  })
 }
 
 /** Lo que dura el caché: lo fijado en /config, si no promptCacheTtl, si no 5 min. */
@@ -1315,11 +1421,12 @@ async function loadPr($: EngineInterface) {
     pendingChecks(next) === 0
   ) {
     const failed = next.checks.filter(check => check.state === 'fail').length
-    $.ui.toast(
+    const text =
       failed === 0
         ? `PR #${next.number} checks: all green.`
-        : `PR #${next.number} checks: ${failed} failed.`,
-    )
+        : `PR #${next.number} checks: ${failed} failed.`
+    $.ui.toast(text)
+    if (notifyMode === 'all') await notifyUser($, text, { key: 'pr' })
   }
 }
 
@@ -1391,6 +1498,67 @@ async function readMode($: EngineInterface) {
       ? record['permissionMode']
       : null
   await update($, mode, () => found)
+}
+
+/**
+ * Lee el costo por modelo del último `cost-state` de la transcripción de esta
+ * sesión. Sin transcripción o sin registro, queda vacío.
+ */
+async function readModelCosts($: EngineInterface) {
+  const record = await lastRecord($, 'grep -a "^{\\"type\\":\\"cost-state\\"" "$1"')
+  await update($, modelCosts, () => modelCostsOf(record))
+}
+
+// En /config: qué avisos nativos salen (off, long o all) y desde cuántos
+// segundos un turno cuenta como largo.
+let notifyMode = 'long'
+let notifyAfterMs = 60_000
+
+/**
+ * El título de las notificaciones: el de la sesión (el de SESIONES, o el que
+ * lleva su transcripción) o, sin él, el nombre de la carpeta.
+ */
+async function notifyTitle($: EngineInterface) {
+  try {
+    const id = await $.session.id().catch(() => '')
+    const known = (await read($, sessions))?.find(one => one.id === id)?.title
+    if (known !== undefined && known !== '') return known
+
+    const record = await lastRecord($, 'grep -a "^{\\"type\\":\\"ai-title\\"" "$1"')
+    const title = record?.['type'] === 'ai-title' ? record['aiTitle'] : undefined
+    if (typeof title === 'string' && title !== '') return title
+
+    const cwd = await $.session.cwd()
+
+    return cwd.split('/').filter(part => part !== '').at(-1) ?? 'panel-shell'
+  } catch {
+    return 'panel-shell'
+  }
+}
+
+/**
+ * Manda una notificación nativa. Nunca rompe el panel: si el motor la rechaza o
+ * ningún canal la envía, no pasa nada (el toast, si lo hay, ya salió).
+ */
+async function notifyUser(
+  $: EngineInterface,
+  text: string,
+  options: { key: string; delayMs?: number; untilBack?: boolean },
+) {
+  try {
+    await $.ui.notify(text, { ...options, title: await notifyTitle($) })
+  } catch {
+    // Sin notificación: el panel sigue igual.
+  }
+}
+
+/** Retira la notificación de caché que quedó programada, si la hay. */
+async function cancelCacheNotice($: EngineInterface) {
+  try {
+    await $.ui.cancelNotify('cache')
+  } catch {
+    // Nada que retirar.
+  }
 }
 
 /**
@@ -1656,6 +1824,12 @@ export const register: Register = (on, options) => {
   const isChangesOn = options['showChanges'] !== 'off'
   // En /config: la sección Pull request de GIT, que lee `gh` (red).
   isPrOn = options['showPr'] !== 'off'
+  // En /config: los avisos nativos (off, long = turnos largos, all = también PR
+  // y caché) y desde cuántos segundos un turno es largo.
+  notifyMode =
+    options['notify'] === 'off' || options['notify'] === 'all' ? options['notify'] : 'long'
+  const afterSeconds = Number(options['notifyAfter'])
+  notifyAfterMs = (Number.isFinite(afterSeconds) && afterSeconds >= 0 ? afterSeconds : 60) * 1000
   let ticking: { cancel: () => void } | undefined
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -1673,6 +1847,7 @@ export const register: Register = (on, options) => {
       await refresh($)
       await readMode($)
       await readEffort($)
+      await readModelCosts($)
       // El reloj del panel: mueve las cuentas regresivas del caché y los límites.
       ticking?.cancel()
       ticking = $.clock.every(TICK_MS, () => {
@@ -1719,7 +1894,7 @@ export const register: Register = (on, options) => {
     // El contexto solo se mueve cuando llega una respuesta del hilo principal.
     // La primera medida de una sesión nueva llega sin tokens: ahí no hay caché.
     if (e.changed.includes('context') && e.context.tokens !== undefined) {
-      await touchCache($)
+      await touchCache($, chosenCacheMs, isAlertOn)
     }
     await refresh($, e)
 
@@ -1732,6 +1907,8 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     if (e.agentId === undefined) {
       await update($, session, before => ({ ...before, turnStartUsd: before.usd ?? 0 }))
+      // Un turno nuevo: el aviso de caché por vencer ya no aplica.
+      if (notifyMode === 'all') await cancelCacheNotice($)
     }
 
     return started
@@ -1764,6 +1941,18 @@ export const register: Register = (on, options) => {
       await refresh($)
       await readMode($)
       await readEffort($)
+      await readModelCosts($)
+      // Un turno largo avisa fuera del panel; uno cancelado a mano, no.
+      if (notifyMode !== 'off' && !e.isAborted && e.durationMs > notifyAfterMs) {
+        const turnUsd = (await read($, session)).turnUsd
+        await notifyUser(
+          $,
+          `Turn finished in ${spanText(e.durationMs)}${
+            turnUsd !== null && turnUsd > 0 ? ` ($${turnUsd.toFixed(2)})` : ''
+          }`,
+          { key: 'turn' },
+        )
+      }
     } else {
       const { agentId } = e
       await syncAgents($)
@@ -1894,6 +2083,7 @@ export const register: Register = (on, options) => {
     const cacheMs = await cacheDuration($, chosenCacheMs)
     const stats = await read($, cacheStats)
     const spent = await read($, session)
+    const perModel = modelLine(await read($, modelCosts))
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)
@@ -2516,6 +2706,11 @@ export const register: Register = (on, options) => {
       const filtering = query.trim() !== ''
       const listed = found.slice(0, MAX_SESSIONS)
       const count = past === null ? 0 : Math.min(past.length, MAX_SESSIONS)
+      const spentOn = costTotals(past ?? [], nowMs)
+      const spentTitle =
+        spentOn.week > 0
+          ? ` · today $${spentOn.today.toFixed(2)} · 7d $${spentOn.week.toFixed(2)}`
+          : ''
 
       return (
         <Box
@@ -2527,7 +2722,9 @@ export const register: Register = (on, options) => {
         >
           {tabs}
           {title(
-            filtering ? `Sessions · ${found.length} of ${past?.length ?? 0}` : `Sessions · ${count}`,
+            `${
+              filtering ? `Sessions · ${found.length} of ${past?.length ?? 0}` : `Sessions · ${count}`
+            }${spentTitle}`,
             <Box flexDirection="row" columnGap={2}>
               {query !== '' && (
                 <Button
@@ -2556,7 +2753,10 @@ export const register: Register = (on, options) => {
             <Text dimColor>No session matches.</Text>
           )}
           {listed.map(one => {
-            const when = one.isCurrent ? 'this' : ago(one.at, nowMs)
+            // El costo de la sesión va junto a cuándo se tocó, si lo hay.
+            const when = `${one.usd === undefined ? '' : `$${one.usd.toFixed(2)} · `}${
+              one.isCurrent ? 'this' : ago(one.at, nowMs)
+            }`
             const room = Math.max(4, inner - 2 - when.length - 1)
             const name = one.title !== '' ? one.title : (one.lastPrompt ?? one.id)
             const summary = summaryMap[one.id]
@@ -2749,6 +2949,11 @@ export const register: Register = (on, options) => {
             {hasRoomForTurn && turnCost !== '' && <Text dimColor>{turnCost}</Text>}
           </Text>
         </Box>
+        {perModel !== '' && (
+          <Text dimColor wrap="truncate-end">
+            {perModel}
+          </Text>
+        )}
 
         {title(
           'Cache',

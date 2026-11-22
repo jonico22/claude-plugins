@@ -43,6 +43,9 @@ export type PanelSession = {
   turnUsd: number | null
 }
 
+/** Lo que costó un modelo en la sesión, con su nombre corto (`Opus 5.5`). */
+export type PanelModelCost = { name: string; usd: number }
+
 /** Una sesión guardada de esta carpeta, leída de su transcripción. */
 export type PanelPast = {
   /** El id de la sesión: el nombre de su archivo, el que toma `claude --resume`. */
@@ -242,6 +245,8 @@ declare module 'claude-code' {
       mode: string | null
       /** El nivel de esfuerzo de la última petición (low, medium, high...); null si no se sabe. */
       effort: string | null
+      /** El costo por modelo del último `cost-state` de la transcripción, del mayor al menor; vacío si no se sabe. */
+      modelCosts: Shaped<PanelModelCost[]>
       cache: Shaped<PanelCache>
       cacheStats: Shaped<PanelCacheStats>
       session: Shaped<PanelSession>

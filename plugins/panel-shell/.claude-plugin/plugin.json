@@ -1,6 +1,6 @@
 {
   "name": "panel-shell",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Panel for Claude Code: folder, git with lazygit, context, cache, limits, MCP, subagents, tasks and past sessions",
   "author": {
     "name": "Jose Luis Yana"
@@ -27,6 +27,23 @@
         "off"
       ],
       "default": "on"
+    },
+    "notify": {
+      "type": "string",
+      "title": "Notifications",
+      "description": "Native notifications outside the panel. \"long\" notifies only when a long turn finishes; \"all\" also notifies when the PR checks finish and when the cache is about to expire; \"off\" sends none.",
+      "options": [
+        "off",
+        "long",
+        "all"
+      ],
+      "default": "long"
+    },
+    "notifyAfter": {
+      "type": "number",
+      "title": "Long turn after (seconds)",
+      "description": "A turn that lasts longer than this many seconds counts as long and sends a notification when it finishes.",
+      "default": 60
     },
     "color": {
       "type": "string",
