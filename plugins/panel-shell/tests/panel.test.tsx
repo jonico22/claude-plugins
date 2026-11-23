@@ -2415,12 +2415,21 @@ test('MAIN muestra el costo por modelo, del mayor al menor, con nombres cortos',
   await ui.unmount()
 })
 
-test('con un solo modelo, o sin cost-state, no sale la línea por modelo', async ($, on) => {
+test('con un solo modelo sale la línea; sin ninguno sobre un centavo, no', async ($, on) => {
   modeEngine(on, costState({ 'claude-opus-5-5': 1.2, 'claude-haiku-4-5': 0.001 }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await mountVeryWide($.ui)
-  expect(await ui.find({ type: 'Text', text: /Opus 5\.5/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.20$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('sin cost-state ni gasto, no sale la línea por modelo', async ($, on) => {
+  modeEngine(on, costState({ 'claude-haiku-4-5': 0.001 }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await mountVeryWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /Haiku/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -2506,6 +2515,7 @@ test('el costo por modelo en vivo atribuye cada turno al modelo que respondió',
 test('el turno de un subagente con otro modelo se atribuye a ese modelo', async ($, on) => {
   const engine = costEngine(on)
   on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('agent.list', () => ({ value: [] }))
   engine.usd = 0
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -2516,8 +2526,57 @@ test('el turno de un subagente con otro modelo se atribuye a ese modelo', async 
 
   const ui = await mountVeryWide($.ui)
   expect(
-    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00 · Haiku 4\.5 \$0\.40$/ }),
+    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00 · Haiku 4\.5 \$0\.40 \(subagents \$0\.40\)$/ }),
   ).toBeDefined()
+  await ui.unmount()
+})
+
+test('el costo de un subagente sale en su fila, en el título de TASKS y en MAIN', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('agent.list', () => ({
+    value: [
+      { id: 'a1', type: 'Explore', description: 'Buscar rutas', status: 'running' },
+    ] as never,
+  }))
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1.35
+  // El hilo principal no cuenta como subagente.
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1.87
+  await $.turn.complete(answered('claude-haiku-4-5-20251001', 'a1'))
+
+  const ui = await mountVeryWide($.ui)
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  await has(/^Opus 5\.5 \$1\.35 · Haiku 4\.5 \$0\.52 \(subagents \$0\.52\)$/)
+
+  await ui.press({ key: 'tab-tasks' })
+  await has(/^Subagents · 1 · \$0\.52$/)
+  await has(/▲ 1 ▼ 1 \$0\.52/)
+  await ui.unmount()
+})
+
+test('sin subagentes no sale "(subagents" y uno barato no pone costo', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('agent.list', () => ({
+    value: [{ id: 'a1', type: 'Explore', description: 'x', status: 'running' }] as never,
+  }))
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1.004
+  await $.turn.complete(answered('claude-opus-5-5', 'a1'))
+
+  const ui = await mountVeryWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00$/ })).toBeDefined()
+  await ui.press({ key: 'tab-tasks' })
+  expect(await ui.find({ type: 'Text', text: /^Subagents · 1$/ })).toBeDefined()
   await ui.unmount()
 })
 

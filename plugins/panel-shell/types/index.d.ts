@@ -43,11 +43,13 @@ export type PanelSession = {
   turnUsd: number | null
 }
 
-/** El costo por modelo en vivo: a qué inicio de sesión pertenece, el total ya atribuido y el costo por id de modelo. */
+/** El costo por modelo en vivo: a qué inicio de sesión pertenece, el total ya atribuido, el costo por id de modelo y el de cada subagente. */
 export type PanelModelUsage = {
   startedAt: number | null
   baseUsd: number | null
   byModel: Record<string, number>
+  /** El costo atribuido a cada subagente por su id (aproximado con subagentes en paralelo). */
+  byAgent: Record<string, number>
 }
 
 /** Lo que costó un modelo en la sesión, con su nombre corto (`Opus 5.5`). */

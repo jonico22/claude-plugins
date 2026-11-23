@@ -1,6 +1,6 @@
 {
   "name": "panel-shell",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "Panel for Claude Code: folder, git with lazygit, context, cache, limits, MCP, subagents, tasks and past sessions",
   "author": {
     "name": "Jose Luis Yana"

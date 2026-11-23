@@ -70,11 +70,12 @@ const session = atom(
 // El costo por modelo en vivo: lo que subió el total de la sesión en cada turno
 // se atribuye al modelo que respondió (`usage.model`). `startedAt` es el inicio
 // de sesión del motor al que pertenece la cuenta, `baseUsd` el total ya
-// atribuido y `byModel` el costo por id de modelo.
+// atribuido, `byModel` el costo por id de modelo y `byAgent` el de cada
+// subagente por su id (el mismo de `$.agent.list()` y de `turn.complete`).
 const modelCosts = atom(
   { plugin: 'panel-shell', key: 'modelCosts' } as const,
-  { startedAt: null, baseUsd: null, byModel: {} },
-  { shape: 'modelCosts-2' },
+  { startedAt: null, baseUsd: null, byModel: {}, byAgent: {} },
+  { shape: 'modelCosts-3' },
 )
 // La hora del reloj del panel; cada cambio redibuja las cuentas regresivas.
 const clock = atom({ plugin: 'panel-shell', key: 'now' } as const, 0)
@@ -308,9 +309,20 @@ function modelCostsOf(byModel: Record<string, number>): PanelModelCost[] {
     .sort((a, b) => b.usd - a.usd)
 }
 
-/** La línea "Opus 5.5 $1.20 · Sonnet 5.5 $0.30"; vacía si hay menos de dos modelos. */
-const modelLine = (costs: PanelModelCost[]): string =>
-  costs.length < 2 ? '' : costs.map(one => `${one.name} $${one.usd.toFixed(2)}`).join(' · ')
+/**
+ * La línea "Opus 5.5 $1.20 · Sonnet 5.5 $0.30 (subagents $0.52)"; vacía si ningún
+ * modelo llega al centavo. La parte de subagentes sale si su costo llega a uno.
+ */
+const modelLine = (costs: PanelModelCost[], subagentsUsd = 0): string => {
+  if (costs.length === 0) return ''
+  const line = costs.map(one => `${one.name} $${one.usd.toFixed(2)}`).join(' · ')
+
+  return subagentsUsd >= 0.01 ? `${line} (subagents $${subagentsUsd.toFixed(2)})` : line
+}
+
+/** La suma de un costo por id. */
+const sumOf = (byId: Record<string, number>): number =>
+  Object.values(byId).reduce((a, b) => a + b, 0)
 
 /**
  * Lo gastado hoy (desde la medianoche local) y en los últimos 7 días, por la
@@ -1534,15 +1546,18 @@ async function seedModelCosts($: EngineInterface) {
     startedAt: full.startedAt,
     baseUsd: full.cost?.usd ?? null,
     byModel: modelUsageOf(record),
+    byAgent: {},
   }))
 }
 
 /**
  * Atribuye al modelo que respondió lo que subió el costo de la sesión desde la
- * última atribución. Las llamadas `$.model` del propio plugin (el resumen de
+ * última atribución. Si lo terminó un subagente (`agentId`), también se suma a
+ * su cuenta. Con subagentes en paralelo la atribución es aproximada: el
+ * incremento entre dos `turn.complete` va al que termina. Las llamadas `$.model` del propio plugin (el resumen de
  * Haiku) no son turnos: su costo cae en el siguiente turno; se acepta.
  */
-async function attributeCost($: EngineInterface, model: string) {
+async function attributeCost($: EngineInterface, model: string, agentId?: string) {
   const full = await $.session.usage()
   const known = await read($, modelCosts)
   // Otro inicio de sesión (/resume, /clear): la cuenta anterior ya no vale.
@@ -1563,6 +1578,10 @@ async function attributeCost($: EngineInterface, model: string) {
       ...before,
       baseUsd: usd,
       byModel: { ...before.byModel, [model]: (before.byModel[model] ?? 0) + spent },
+      byAgent:
+        agentId === undefined
+          ? before.byAgent
+          : { ...before.byAgent, [agentId]: (before.byAgent[agentId] ?? 0) + spent },
     }
   })
 }
@@ -1979,7 +1998,7 @@ export const register: Register = (on, options) => {
 
     // Todo turno, también el de un subagente, se atribuye al modelo que respondió.
     if (usage !== undefined && typeof usage.model === 'string' && usage.model !== '') {
-      await attributeCost($, usage.model).catch(() => undefined)
+      await attributeCost($, usage.model, e.agentId).catch(() => undefined)
     }
 
     if (usage !== undefined) {
@@ -2145,7 +2164,8 @@ export const register: Register = (on, options) => {
     const cacheMs = await cacheDuration($, chosenCacheMs)
     const stats = await read($, cacheStats)
     const spent = await read($, session)
-    const perModel = modelLine(modelCostsOf((await read($, modelCosts)).byModel))
+    const liveCosts = await read($, modelCosts)
+    const perModel = modelLine(modelCostsOf(liveCosts.byModel), sumOf(liveCosts.byAgent))
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)
@@ -2183,6 +2203,9 @@ export const register: Register = (on, options) => {
       todoRows.length <= MAX_TODOS
         ? todoRows
         : todoRows.filter(todo => todo.status !== 'completed').slice(0, MAX_TODOS)
+    // El costo de cada subagente mostrado y su suma, para la pestaña TASKS.
+    const agentUsd = (id: string) => liveCosts.byAgent[id] ?? 0
+    const agentsUsd = agentRows.reduce((sum, agent) => sum + agentUsd(agent.id), 0)
     const activeAgents = agentRows.filter(agent => !ENDED.has(agent.status)).length
     const current = todoRows.find(todo => todo.status === 'in_progress')
     const columns = Math.max(20, e.props.bodyColumns)
@@ -2900,7 +2923,11 @@ export const register: Register = (on, options) => {
           paddingX={1}
         >
           {tabs}
-          {title(`Subagents · ${agentRows.length}`)}
+          {title(
+            `Subagents · ${agentRows.length}${
+              agentsUsd >= 0.01 ? ` · $${agentsUsd.toFixed(2)}` : ''
+            }`,
+          )}
           {agentRows.length === 0 && <Text dimColor>No subagents.</Text>}
           {agentRows.map(agent => {
             const mark = ENDED.has(agent.status)
@@ -2913,7 +2940,10 @@ export const register: Register = (on, options) => {
             const lasted = countdown(
               (agent.endedAt ?? Math.max(ticked, agent.startedAt)) - agent.startedAt,
             )
-            const tokens = `▲ ${compact(agent.tokensIn)} ▼ ${compact(agent.tokensOut)}`
+            const usd = agentUsd(agent.id)
+            const tokens = `▲ ${compact(agent.tokensIn)} ▼ ${compact(agent.tokensOut)}${
+              usd >= 0.01 ? ` $${usd.toFixed(2)}` : ''
+            }`
             const hasRoomForTime =
               `${mark.glyph} ${agent.type}`.length + 1 + tokens.length + 1 + lasted.length <=
               inner
