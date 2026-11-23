@@ -140,7 +140,7 @@ To turn it off without uninstalling: `claude plugin disable panel-shell@jonico22
 #### MAIN
 
 - **Status:** folder, branch, model, effort, permission mode and session duration.
-- **Context:** bar, tokens and cost. Next to the total, `(+$X)` is the cost of the whole last turn (every API call in it, subagents included); it stays until the next turn starts and is dropped after `/resume` or `/clear`. Under the total, a dim line shows the cost per model (for example `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), from the most to the least expensive. It is read from the transcript, leaves out models under $0.01 and hides when only one model is left.
+- **Context:** bar, tokens and cost. Next to the total, `(+$X)` is the cost of the whole last turn (every API call in it, subagents included); it stays until the next turn starts and is dropped after `/resume` or `/clear`. Under the total, a dim line shows the cost per model (for example `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), from the most to the least expensive. Each turn's cost (subagents included) is credited to the model that answered it, live; a resumed session starts from the transcript's last cost record. It leaves out models under $0.01 and hides when only one model is left.
 - **Cache:** countdown and a bar that turns orange at 70% and red at 90%. It shows the percentage read from the cache. It warns you with a toast before it expires.
 - **Limits:** the usage limits (5 hours, week, spend).
 - **MCP:** the servers; the ones that stop providing tools show in red.

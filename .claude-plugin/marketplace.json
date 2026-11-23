@@ -9,7 +9,7 @@
       "name": "panel-shell",
       "source": "./plugins/panel-shell",
       "description": "Panel for Claude Code: folder, git with lazygit, context, cache, limits, MCP, subagents, tasks and past sessions",
-      "version": "0.14.0"
+      "version": "0.14.1"
     }
   ]
 }

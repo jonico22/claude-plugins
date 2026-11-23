@@ -140,7 +140,7 @@ La interfaz del panel está en inglés: los nombres de pestañas, secciones, bot
 #### MAIN
 
 - **Status** (estado): carpeta, rama, modelo, esfuerzo, modo de permisos y duración de la sesión.
-- **Context** (contexto): barra, tokens y costo (`Cost`). Junto al total, `(+$X)` es el costo del último turno entero (todas sus llamadas a la API, subagentes incluidos); se queda hasta que empieza el siguiente turno y se descarta tras `/resume` o `/clear`. Bajo el total, una línea tenue muestra el costo por modelo (por ejemplo `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), del más al menos caro. Se lee de la transcripción, omite los modelos de menos de $0.01 y se oculta si queda uno solo.
+- **Context** (contexto): barra, tokens y costo (`Cost`). Junto al total, `(+$X)` es el costo del último turno entero (todas sus llamadas a la API, subagentes incluidos); se queda hasta que empieza el siguiente turno y se descarta tras `/resume` o `/clear`. Bajo el total, una línea tenue muestra el costo por modelo (por ejemplo `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), del más al menos caro. El costo de cada turno (subagentes incluidos) se atribuye en vivo al modelo que respondió; una sesión reanudada parte del último registro de costo de la transcripción. Omite los modelos de menos de $0.01 y se oculta si queda uno solo.
 - **Cache** (caché): cuenta regresiva y barra que pasa a naranja al 70 % y a roja al 90 %. Muestra el porcentaje leído del caché. Avisa en un toast antes de que venza.
 - **Limits** (límites de uso): 5 hours, week y spend.
 - **MCP:** los servidores; los que dejan de aportar herramientas salen en rojo.

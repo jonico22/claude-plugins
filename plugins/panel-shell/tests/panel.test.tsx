@@ -847,18 +847,30 @@ test('Status muestra el tiempo de la sesión', async ($, on) => {
 })
 
 /** Un motor falso cuyo inicio de sesión (`startedAt`) se puede cambiar, como en /resume. */
-const costEngine = (on: On) => {
-  const engine = { startedAt: 1 }
+const costEngine = (on: On, record = '') => {
+  // `usd` es el costo en vivo que devuelve `session.usage`; sin él no hay costo.
+  const engine: { startedAt: number; usd?: number } = { startedAt: 1 }
   on('command.register', () => ({ value: { command: 'panel' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/tmp/demo' }))
   on('session.model', () => ({ value: 'opus' }))
   on('env.get', () => ({ value: undefined }))
+  on('session.root', () => ({ value: '/tmp/demo' }))
+  on('session.id', () => ({ value: 'abc' }))
   on('session.usage', () => ({
-    value: { startedAt: engine.startedAt, context: { window: 200_000 }, rateLimits: [] },
+    value: {
+      startedAt: engine.startedAt,
+      context: { window: 200_000 },
+      rateLimits: [],
+      ...(engine.usd === undefined ? {} : { cost: { usd: engine.usd } }),
+    },
   }))
-  on('process.run', () => ({ value: { ...OK, exitCode: 128, stdout: '' } }))
+  on('process.run', (_, e) =>
+    e.argv[0] === 'sh' && record !== ''
+      ? { value: { ...OK, stdout: record } }
+      : { value: { ...OK, exitCode: 128, stdout: '' } },
+  )
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   mock.clock(on, { now: 1_000_000 })
@@ -1298,7 +1310,13 @@ const SESSIONS_OUT = [
 ].join('\n')
 
 /** Un motor falso con sesiones guardadas; guarda cada comando `sh` pedido. */
-const sessionsEngine = (on: On, prompts = '', listing = SESSIONS_OUT, now = 1_000_000) => {
+const sessionsEngine = (
+  on: On,
+  prompts = '',
+  listing = SESSIONS_OUT,
+  now = 1_000_000,
+  liveUsd?: number,
+) => {
   const asked: (readonly string[])[] = []
   on('command.register', () => ({ value: { command: 'panel' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -1306,7 +1324,12 @@ const sessionsEngine = (on: On, prompts = '', listing = SESSIONS_OUT, now = 1_00
   on('session.cwd', () => ({ value: '/tmp/demo' }))
   on('session.model', () => ({ value: 'opus' }))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] },
+    value: {
+      startedAt: 0,
+      context: { window: 200_000 },
+      rateLimits: [],
+      ...(liveUsd === undefined ? {} : { cost: { usd: liveUsd } }),
+    },
   }))
   mock.clock(on, { now })
   on('session.root', () => ({ value: '/home/ana/mi proyecto' }))
@@ -2441,6 +2464,156 @@ test('SESIONES lleva el costo de cada fila y los totales de hoy y 7 días', asyn
   // El filtro sigue funcionando y el título conserva los totales.
   await ui.input({ key: 'session-filter', text: 'tres' })
   await has(/^Sessions · 1 of 4 · today/)
+  await ui.unmount()
+})
+
+/** Un turno que terminó con ese modelo (de un subagente si lleva `agentId`). */
+const answered = (model: string, agentId?: string) =>
+  ({
+    answer: 'listo',
+    durationMs: 1000,
+    isAborted: false,
+    turnId: 't',
+    reason: 'answer',
+    ...(agentId === undefined ? {} : { agentId }),
+    usage: {
+      model,
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+  }) as const
+
+test('el costo por modelo en vivo atribuye cada turno al modelo que respondió', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1.2
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1.7
+  await $.turn.complete(answered('claude-sonnet-5-5'))
+
+  const ui = await mountVeryWide($.ui)
+  expect(
+    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.20 · Sonnet 5\.5 \$0\.50$/ }),
+  ).toBeDefined()
+  await ui.unmount()
+})
+
+test('el turno de un subagente con otro modelo se atribuye a ese modelo', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1.4
+  await $.turn.complete(answered('claude-haiku-4-5-20251001', 'a1'))
+
+  const ui = await mountVeryWide($.ui)
+  expect(
+    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00 · Haiku 4\.5 \$0\.40$/ }),
+  ).toBeDefined()
+  await ui.unmount()
+})
+
+test('al reanudar, la semilla del cost-state y el avance en vivo no se cuentan dos veces', async ($, on) => {
+  const engine = costEngine(
+    on,
+    costState({ 'claude-opus-5-5': 3, 'claude-sonnet-5-5': 1 }),
+  )
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  // El total ya incluye lo del cost-state.
+  engine.usd = 4
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 4.5
+  await $.turn.complete(answered('claude-sonnet-5-5'))
+
+  const ui = await mountVeryWide($.ui)
+  expect(
+    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$3\.00 · Sonnet 5\.5 \$1\.50$/ }),
+  ).toBeDefined()
+  await ui.unmount()
+})
+
+test('si cambia el inicio de sesión del motor, el costo por modelo se reinicia', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 2
+  await $.turn.complete(answered('claude-sonnet-5-5'))
+  // /clear: otra sesión, sin cost-state; el total vuelve a empezar.
+  engine.startedAt = 2
+  engine.usd = 0.5
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1.5
+  await $.turn.complete(answered('claude-sonnet-5-5'))
+
+  const ui = await mountVeryWide($.ui)
+  // Solo cuenta lo de después del reinicio (la base es 0.5).
+  expect(
+    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$0\.50 · Sonnet 5\.5 \$0\.50$/ }),
+  ).toBeDefined()
+  await ui.unmount()
+})
+
+test('un incremento negativo no resta del costo por modelo', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 0.2
+  await $.turn.complete(answered('claude-sonnet-5-5'))
+  engine.usd = 0.7
+  await $.turn.complete(answered('claude-sonnet-5-5'))
+
+  const ui = await mountVeryWide($.ui)
+  expect(
+    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00 · Sonnet 5\.5 \$0\.50$/ }),
+  ).toBeDefined()
+  await ui.unmount()
+})
+
+test('SESIONES usa el costo en vivo en la fila actual y lo suma a los totales', async ($, on) => {
+  const now = new Date(2026, 5, 15, 12, 0, 0).getTime()
+  const sec = (ms: number) => Math.floor((now - ms) / 1000)
+  const cost = (usd: number) => `{"type":"cost-state","totalCostUSD":${usd}}`
+  // `bbb` es la sesión actual (su transcripción aún no lleva cost-state).
+  const listing = [
+    `F\tbbb.jsonl\t${sec(60_000)}`,
+    '{"type":"ai-title","aiTitle":"Actual"}',
+    `F\ta.jsonl\t${sec(3_600_000)}`,
+    '{"type":"ai-title","aiTitle":"Hoy"}',
+    cost(0.5),
+    '',
+  ].join('\n')
+  sessionsEngine(on, '', listing, now, 0.75)
+  on('store.get', () => ({ value: undefined }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.session.measure(usageAt(0.75))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-sessions' })
+  const has = async (text: RegExp) =>
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+
+  await has(/^Sessions · 2 · today \$1\.25 · 7d \$1\.25$/)
+  await has(/● Actual\s+\$0\.75 · this$/)
   await ui.unmount()
 })
 

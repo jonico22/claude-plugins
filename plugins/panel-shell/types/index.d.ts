@@ -43,6 +43,13 @@ export type PanelSession = {
   turnUsd: number | null
 }
 
+/** El costo por modelo en vivo: a qué inicio de sesión pertenece, el total ya atribuido y el costo por id de modelo. */
+export type PanelModelUsage = {
+  startedAt: number | null
+  baseUsd: number | null
+  byModel: Record<string, number>
+}
+
 /** Lo que costó un modelo en la sesión, con su nombre corto (`Opus 5.5`). */
 export type PanelModelCost = { name: string; usd: number }
 
@@ -245,8 +252,8 @@ declare module 'claude-code' {
       mode: string | null
       /** El nivel de esfuerzo de la última petición (low, medium, high...); null si no se sabe. */
       effort: string | null
-      /** El costo por modelo del último `cost-state` de la transcripción, del mayor al menor; vacío si no se sabe. */
-      modelCosts: Shaped<PanelModelCost[]>
+      /** El costo por modelo en vivo (cada turno se atribuye al modelo que respondió), sembrado del último `cost-state` al reanudar. */
+      modelCosts: Shaped<PanelModelUsage>
       cache: Shaped<PanelCache>
       cacheStats: Shaped<PanelCacheStats>
       session: Shaped<PanelSession>

@@ -67,10 +67,15 @@ const session = atom(
   { startedAt: null, engineStartedAt: null, usd: null, turnStartUsd: null, turnUsd: null },
   { shape: 'session-2' },
 )
-// El costo por modelo del último `cost-state` de la transcripción; vacío si no se sabe.
-const modelCosts = atom({ plugin: 'panel-shell', key: 'modelCosts' } as const, [], {
-  shape: 'modelCosts-1',
-})
+// El costo por modelo en vivo: lo que subió el total de la sesión en cada turno
+// se atribuye al modelo que respondió (`usage.model`). `startedAt` es el inicio
+// de sesión del motor al que pertenece la cuenta, `baseUsd` el total ya
+// atribuido y `byModel` el costo por id de modelo.
+const modelCosts = atom(
+  { plugin: 'panel-shell', key: 'modelCosts' } as const,
+  { startedAt: null, baseUsd: null, byModel: {} },
+  { shape: 'modelCosts-2' },
+)
 // La hora del reloj del panel; cada cambio redibuja las cuentas regresivas.
 const clock = atom({ plugin: 'panel-shell', key: 'now' } as const, 0)
 
@@ -269,24 +274,38 @@ function shortModel(id: string): string {
   return id
 }
 
-/**
- * Los costos por modelo de un registro `cost-state` (su `modelUsage`), del más
- * caro al más barato, sin los de menos de un centavo. Sin datos, vacío.
- */
-function modelCostsOf(record: Record<string, unknown> | null): PanelModelCost[] {
+/** El costo por id de modelo de un registro `cost-state` (su `modelUsage`); vacío sin datos. */
+function modelUsageOf(record: Record<string, unknown> | null): Record<string, number> {
   const usage = record?.['type'] === 'cost-state' ? record['modelUsage'] : null
-  if (typeof usage !== 'object' || usage === null) return []
+  if (typeof usage !== 'object' || usage === null) return {}
 
-  const costs: PanelModelCost[] = []
+  const byModel: Record<string, number> = {}
   for (const [id, one] of Object.entries(usage)) {
     const usd =
       typeof one === 'object' && one !== null
         ? numberOf((one as Record<string, unknown>)['costUSD'])
         : undefined
-    if (usd !== undefined && usd >= 0.01) costs.push({ name: shortModel(id), usd })
+    if (usd !== undefined) byModel[id] = usd
   }
 
-  return costs.sort((a, b) => b.usd - a.usd)
+  return byModel
+}
+
+/**
+ * Los costos por modelo con su nombre corto, del más caro al más barato, sin
+ * los de menos de un centavo (ids que comparten nombre corto se suman).
+ */
+function modelCostsOf(byModel: Record<string, number>): PanelModelCost[] {
+  const byName = new Map<string, number>()
+  for (const [id, usd] of Object.entries(byModel)) {
+    const name = shortModel(id)
+    byName.set(name, (byName.get(name) ?? 0) + usd)
+  }
+
+  return [...byName]
+    .filter(([, usd]) => usd >= 0.01)
+    .map(([name, usd]) => ({ name, usd }))
+    .sort((a, b) => b.usd - a.usd)
 }
 
 /** La línea "Opus 5.5 $1.20 · Sonnet 5.5 $0.30"; vacía si hay menos de dos modelos. */
@@ -1501,12 +1520,51 @@ async function readMode($: EngineInterface) {
 }
 
 /**
- * Lee el costo por modelo del último `cost-state` de la transcripción de esta
- * sesión. Sin transcripción o sin registro, queda vacío.
+ * Reinicia el costo por modelo para el inicio de sesión actual del motor. Parte
+ * del `modelUsage` del último `cost-state` de la transcripción (existe al
+ * reanudar; en una sesión nueva o tras /clear no hay y queda vacío) y toma como
+ * base el total actual, para no contar dos veces lo ya atribuido.
+ * Claude Code escribe el `cost-state` solo al cerrar, iniciar o reanudar, no
+ * durante la sesión: por eso el avance sale de `attributeCost`.
  */
-async function readModelCosts($: EngineInterface) {
+async function seedModelCosts($: EngineInterface) {
+  const full = await $.session.usage()
   const record = await lastRecord($, 'grep -a "^{\\"type\\":\\"cost-state\\"" "$1"')
-  await update($, modelCosts, () => modelCostsOf(record))
+  await update($, modelCosts, () => ({
+    startedAt: full.startedAt,
+    baseUsd: full.cost?.usd ?? null,
+    byModel: modelUsageOf(record),
+  }))
+}
+
+/**
+ * Atribuye al modelo que respondió lo que subió el costo de la sesión desde la
+ * última atribución. Las llamadas `$.model` del propio plugin (el resumen de
+ * Haiku) no son turnos: su costo cae en el siguiente turno; se acepta.
+ */
+async function attributeCost($: EngineInterface, model: string) {
+  const full = await $.session.usage()
+  const known = await read($, modelCosts)
+  // Otro inicio de sesión (/resume, /clear): la cuenta anterior ya no vale.
+  if (known.startedAt !== full.startedAt) {
+    await seedModelCosts($)
+
+    return
+  }
+  const usd = full.cost?.usd
+  if (usd === undefined) return
+
+  await update($, modelCosts, before => {
+    const spent = before.baseUsd === null ? 0 : usd - before.baseUsd
+    // Un incremento negativo es una base nueva (rebase): no resta nada.
+    if (spent <= 0) return { ...before, baseUsd: usd }
+
+    return {
+      ...before,
+      baseUsd: usd,
+      byModel: { ...before.byModel, [model]: (before.byModel[model] ?? 0) + spent },
+    }
+  })
 }
 
 // En /config: qué avisos nativos salen (off, long o all) y desde cuántos
@@ -1847,7 +1905,7 @@ export const register: Register = (on, options) => {
       await refresh($)
       await readMode($)
       await readEffort($)
-      await readModelCosts($)
+      await seedModelCosts($)
       // El reloj del panel: mueve las cuentas regresivas del caché y los límites.
       ticking?.cancel()
       ticking = $.clock.every(TICK_MS, () => {
@@ -1919,6 +1977,11 @@ export const register: Register = (on, options) => {
     const done = await next(e)
     const usage = e.usage
 
+    // Todo turno, también el de un subagente, se atribuye al modelo que respondió.
+    if (usage !== undefined && typeof usage.model === 'string' && usage.model !== '') {
+      await attributeCost($, usage.model).catch(() => undefined)
+    }
+
     if (usage !== undefined) {
       const add: PanelTotals = {
         tokensIn: inputTotal(usage),
@@ -1941,7 +2004,6 @@ export const register: Register = (on, options) => {
       await refresh($)
       await readMode($)
       await readEffort($)
-      await readModelCosts($)
       // Un turno largo avisa fuera del panel; uno cancelado a mano, no.
       if (notifyMode !== 'off' && !e.isAborted && e.durationMs > notifyAfterMs) {
         const turnUsd = (await read($, session)).turnUsd
@@ -2083,7 +2145,7 @@ export const register: Register = (on, options) => {
     const cacheMs = await cacheDuration($, chosenCacheMs)
     const stats = await read($, cacheStats)
     const spent = await read($, session)
-    const perModel = modelLine(await read($, modelCosts))
+    const perModel = modelLine(modelCostsOf((await read($, modelCosts)).byModel))
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)
@@ -2696,7 +2758,13 @@ export const register: Register = (on, options) => {
     }
 
     if (shown === 'sessions') {
-      const past = await read($, sessions)
+      const stored = await read($, sessions)
+      // La transcripción de la sesión actual aún no lleva `cost-state`: su
+      // costo es el medido en vivo.
+      const past =
+        stored === null || spent.usd === null || spent.usd <= 0
+          ? stored
+          : stored.map(one => (one.isCurrent === true ? { ...one, usd: spent.usd ?? 0 } : one))
       const openId = await read($, openSession)
       const summaryMap = await read($, summaries)
       const query = await read($, sessionQuery)
