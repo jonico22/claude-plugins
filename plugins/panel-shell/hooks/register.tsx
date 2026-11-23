@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionUsage } from 'claude-code'
+import type { EngineInterface, Register, SessionUsage, UiNotifyResult } from 'claude-code'
 
 import type {
   PanelAgent,
@@ -1601,19 +1601,47 @@ async function notifyTitle($: EngineInterface) {
   }
 }
 
+/** Pista breve por cada motivo por el que no salió una notificación. */
+const NOTIFY_HINTS = {
+  disabled: 'check Notifications and preferredNotifChannel in /config',
+  'no-channel': 'check Notifications and preferredNotifChannel in /config',
+  'no-surface': 'there is no terminal to notify',
+  refused: 'a hook blocked it',
+} as const
+
+/** Texto del resultado de una notificación, para los toasts. */
+function notifyOutcome(result: UiNotifyResult) {
+  if (result.isSent) {
+    return result.channel === 'terminal_bell'
+      ? 'Notification sent via terminal_bell. That channel only rings and shows no text; change preferredNotifChannel in /config.'
+      : `Notification sent via ${result.channel}.`
+  }
+
+  return `Notification not sent: ${result.reason}. ${NOTIFY_HINTS[result.reason]}.`
+}
+
+/** El aviso de que las notificaciones fallan sale una sola vez por sesión. */
+let hasWarnedNotify = false
+
 /**
  * Manda una notificación nativa. Nunca rompe el panel: si el motor la rechaza o
- * ningún canal la envía, no pasa nada (el toast, si lo hay, ya salió).
+ * ningún canal la envía, avisa con un toast, una sola vez por sesión.
  */
 async function notifyUser(
   $: EngineInterface,
   text: string,
   options: { key: string; delayMs?: number; untilBack?: boolean },
 ) {
+  let failure: string | undefined
   try {
-    await $.ui.notify(text, { ...options, title: await notifyTitle($) })
-  } catch {
-    // Sin notificación: el panel sigue igual.
+    const result = await $.ui.notify(text, { ...options, title: await notifyTitle($) })
+    if (!result.isSent) failure = notifyOutcome(result)
+  } catch (error) {
+    failure = `Notification not sent: ${error instanceof Error ? error.message : String(error)}.`
+  }
+  if (failure !== undefined && !hasWarnedNotify) {
+    hasWarnedNotify = true
+    $.ui.toast(failure)
   }
 }
 
@@ -1898,11 +1926,12 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'panel',
-      description: 'Open the session panel (/panel close closes it)',
-      argumentHint: '[close]',
+      description: 'Open the session panel (/panel close closes it, /panel notify tests notifications)',
+      argumentHint: '[close|notify]',
     })
     const started = await next(e)
     lastReread = 0
+    hasWarnedNotify = false
     lastPrRead = 0
 
     if (e.isInteractive) {
@@ -1932,6 +1961,23 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'panel' }, async ($, e) => {
+    // Notificación de prueba: dice por qué canal salió, o por qué no.
+    if (/^notify$/i.test(e.args.trim())) {
+      let message: string
+      try {
+        const result = await $.ui.notify('Test notification from panel-shell', {
+          key: 'test',
+          title: await notifyTitle($),
+        })
+        message = notifyOutcome(result)
+      } catch (error) {
+        message = `Notification not sent: ${error instanceof Error ? error.message : String(error)}.`
+      }
+      $.ui.toast(message)
+
+      return { text: message }
+    }
+
     if (/^(cerrar|close|off)$/i.test(e.args.trim())) {
       await $.ui.close({ id: PANE })
 
@@ -2511,7 +2557,7 @@ export const register: Register = (on, options) => {
         },
         {
           key: 'diff',
-          label: 'Ver diff',
+          label: 'View diff',
           hotkey: 'd',
           command: 'git diff <file>',
           run: () => openDiff($, chosenTerminal),
@@ -2788,10 +2834,6 @@ export const register: Register = (on, options) => {
       const listed = found.slice(0, MAX_SESSIONS)
       const count = past === null ? 0 : Math.min(past.length, MAX_SESSIONS)
       const spentOn = costTotals(past ?? [], nowMs)
-      const spentTitle =
-        spentOn.week > 0
-          ? ` · today $${spentOn.today.toFixed(2)} · 7d $${spentOn.week.toFixed(2)}`
-          : ''
 
       return (
         <Box
@@ -2803,9 +2845,7 @@ export const register: Register = (on, options) => {
         >
           {tabs}
           {title(
-            `${
-              filtering ? `Sessions · ${found.length} of ${past?.length ?? 0}` : `Sessions · ${count}`
-            }${spentTitle}`,
+            filtering ? `Sessions · ${found.length} of ${past?.length ?? 0}` : `Sessions · ${count}`,
             <Box flexDirection="row" columnGap={2}>
               {query !== '' && (
                 <Button
@@ -2817,6 +2857,18 @@ export const register: Register = (on, options) => {
               )}
               <Button key="reload" label="Refresh" hotkey="u" onPress={() => readSessions($)} />
             </Box>,
+          )}
+          {spentOn.week > 0 && (
+            <Box flexDirection="row" justifyContent="space-between" gap={1}>
+              <Text dimColor>Today</Text>
+              <Text dimColor>{`$${spentOn.today.toFixed(2)}`}</Text>
+            </Box>
+          )}
+          {spentOn.week > 0 && (
+            <Box flexDirection="row" justifyContent="space-between" gap={1}>
+              <Text dimColor>Last 7 days</Text>
+              <Text dimColor>{`$${spentOn.week.toFixed(2)}`}</Text>
+            </Box>
           )}
           <Input
             key="session-filter"

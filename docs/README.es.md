@@ -13,10 +13,10 @@ El detalle de cada una de sus cuatro pestañas:
 <table>
   <tr><th>MAIN</th><th>GIT</th><th>TASKS</th><th>SESSIONS</th></tr>
   <tr>
-    <td valign="top"><img src="img/panel-main.png" alt="Pestaña MAIN: estado de la sesión, contexto, caché, límites, MCP y cambios" width="200"></td>
+    <td valign="top"><img src="img/panel-main.png" alt="Pestaña MAIN: estado, contexto, costo por modelo, caché, límites y MCP" width="200"></td>
     <td valign="top"><img src="img/panel-git.png" alt="Pestaña GIT: repositorio, pull request, acciones, cambios y commits" width="200"></td>
-    <td valign="top"><img src="img/panel-tareas.png" alt="Pestaña TASKS: subagentes y lista de tareas" width="200"></td>
-    <td valign="top"><img src="img/panel-sesiones.png" alt="Pestaña SESSIONS: sesiones recientes con su filtro" width="200"></td>
+    <td valign="top"><img src="img/panel-tareas.png" alt="Pestaña TASKS: subagentes con su costo y to-dos" width="200"></td>
+    <td valign="top"><img src="img/panel-sesiones.png" alt="Pestaña SESSIONS: sesiones recientes con su costo y un filtro" width="200"></td>
   </tr>
 </table>
 
@@ -200,7 +200,7 @@ Stash:
 
 #### SESSIONS
 
-- **Sessions** (sesiones): las últimas sesiones de Claude Code en esta carpeta, con su título, su costo (si es mayor que cero) y hace cuánto se usaron. El título añade `today $X · 7d $Y`: el costo de las sesiones escaneadas según su fecha de modificación (solo las 30 más recientes, no todo el historial).
+- **Sessions** (sesiones): las últimas sesiones de Claude Code en esta carpeta, con su título, su costo (si es mayor que cero) y hace cuánto se usaron. Bajo el título, dos filas tenues, `Today` y `Last 7 days`, suman el costo de las sesiones escaneadas según su fecha de modificación (solo las 30 más recientes, no todo el historial). Se ocultan si no hubo costo en los últimos 7 días.
 - **Detalle:** pulsa una para ver su último prompt, costo, duración y líneas cambiadas.
 - **`Summarize`** (resumir, `s`): pide un resumen de 2 o 3 frases al modelo rápido. Lo escribe en el idioma de los prompts de la sesión, sea cual sea. Es una llamada pequeña que suma al costo. El resumen queda guardado.
 - **`Resume`** (reanudar, `r`): abre la sesión con `claude --resume` en una ventana aparte.
@@ -210,7 +210,7 @@ Stash:
 #### Abrir y configurar
 
 - **Al iniciar:** el panel se abre solo.
-- **Comandos:** `/panel` lo abre y `/panel close` lo cierra. Hay más detalle en [Comandos y atajos](#comandos-y-atajos-de-panel-shell).
+- **Comandos:** `/panel` lo abre, `/panel close` lo cierra y `/panel notify` manda una notificación de prueba. Hay más detalle en [Comandos y atajos](#comandos-y-atajos-de-panel-shell).
 - **`/config`:** ahí eliges el color, la duración del caché (por defecto la lee de `promptCacheTtl`), el aviso de vencimiento, la terminal de las ventanas (lazygit, `View diff` y `Resume`), qué secciones de MAIN se muestran si GIT muestra el Pull request (`showPr`), las notificaciones (`notify`) y cuánto debe durar un turno para ser largo (`notifyAfter`, 60 segundos por defecto). Otras formas de fijarlas, en [Configurar al instalar](#configurar-al-instalar).
 
 #### Notificaciones
@@ -221,7 +221,7 @@ El panel también puede mandar notificaciones nativas (fuera del panel, para cua
 - **`all`**: ese aviso más los checks del PR al terminar y el caché por vencer (solo si te alejaste de la sesión; se cancela al empezar un turno nuevo o al renovarse el caché).
 - **`off`**: ninguna.
 
-Si la terminal o el cliente no pueden mostrarlas, no pasa nada: el panel sigue funcionando.
+Si la terminal o el cliente no pueden mostrarlas, el panel sigue funcionando y sale un toast con el motivo, una vez por sesión. Para comprobar que llegan, usa `/panel notify`: manda una notificación de prueba (aunque `notify` esté en `off`) y un toast dice por qué canal salió o por qué no se envió. Algunas terminales, como Ghostty, pueden mostrar la notificación de escritorio solo cuando la ventana no tiene el foco.
 
 ### Comandos y atajos de panel-shell
 
@@ -230,6 +230,7 @@ Comandos:
 | Comando | Qué hace |
 |---|---|
 | `/panel` | Abre el panel. |
+| `/panel notify` | Manda una notificación de prueba, aunque `notify` esté en `off`, y un toast dice el canal usado o por qué no se envió. |
 | `/panel close` | Lo cierra. También vale `/panel off` (y `/panel cerrar`, que se mantiene por compatibilidad). |
 
 Atajos de teclado. Cada uno es la tecla del botón con el mismo nombre:

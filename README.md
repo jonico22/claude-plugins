@@ -15,10 +15,10 @@ The detail of each of its four tabs:
 <table>
   <tr><th>MAIN</th><th>GIT</th><th>TASKS</th><th>SESSIONS</th></tr>
   <tr>
-    <td valign="top"><img src="docs/img/panel-main.png" alt="MAIN tab: session status, context, cache, limits, MCP and changes" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-main.png" alt="MAIN tab: status, context, cost by model, cache, limits and MCP" width="200"></td>
     <td valign="top"><img src="docs/img/panel-git.png" alt="GIT tab: repository, pull request, actions, changes and commits" width="200"></td>
-    <td valign="top"><img src="docs/img/panel-tareas.png" alt="TASKS tab: subagents and task list" width="200"></td>
-    <td valign="top"><img src="docs/img/panel-sesiones.png" alt="SESSIONS tab: recent sessions with their filter" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-tareas.png" alt="TASKS tab: subagents with their cost, and to-dos" width="200"></td>
+    <td valign="top"><img src="docs/img/panel-sesiones.png" alt="SESSIONS tab: recent sessions with their cost, and a filter" width="200"></td>
   </tr>
 </table>
 
@@ -200,7 +200,7 @@ Stash:
 
 #### SESSIONS
 
-- **Sessions:** the latest Claude Code sessions in this folder, with their title, their cost (when it is above zero) and how long ago they were used. The title adds `today $X · 7d $Y`, the cost of the scanned sessions by the date they were last modified (only the 30 most recent, not the whole history).
+- **Sessions:** the latest Claude Code sessions in this folder, with their title, their cost (when it is above zero) and how long ago they were used. Under the title, two dim rows, `Today` and `Last 7 days`, add up the cost of the scanned sessions by the date they were last modified (only the 30 most recent, not the whole history). They are hidden if there was no cost in the last 7 days.
 - **Detail:** click one to see its last prompt, cost, duration and changed lines.
 - **`Summarize`** (`s`): asks the fast model for a 2 or 3 sentence summary, written in the language of the session's prompts. It is a small call that adds to the cost. The summary is saved.
 - **`Resume`** (`r`): opens the session with `claude --resume` in a separate window.
@@ -210,7 +210,7 @@ Stash:
 #### Open and configure
 
 - **On start:** the panel opens by itself.
-- **Commands:** `/panel` opens it and `/panel close` closes it. There is more detail in [Commands and shortcuts](#commands-and-shortcuts-of-panel-shell).
+- **Commands:** `/panel` opens it, `/panel close` closes it and `/panel notify` sends a test notification. There is more detail in [Commands and shortcuts](#commands-and-shortcuts-of-panel-shell).
 - **`/config`:** there you choose the color, the cache duration (by default it reads it from `promptCacheTtl`), the expiry warning, the terminal for the windows (lazygit, `View diff` and `Resume`), which MAIN sections are shown and whether GIT shows the Pull request (`showPr`), the notifications (`notify`) and how long a turn must last to count as long (`notifyAfter`, 60 seconds by default). Other ways to set them are in [Configure on install](#configure-on-install).
 
 #### Notifications
@@ -221,7 +221,7 @@ The panel can also send native notifications (outside the panel, for when you ar
 - **`all`**: that one plus the PR checks finishing and the cache about to expire (only if you are away from the session; it is cancelled when a new turn starts or the cache is renewed).
 - **`off`**: none.
 
-If the terminal or the client can't raise them, nothing happens: the panel keeps working.
+If the terminal or the client can't raise them, the panel keeps working and shows a toast with the reason, once per session. To check that they arrive, run `/panel notify`: it sends a test notification (even with `notify` set to `off`) and a toast says which channel carried it, or why it was not sent. Some terminals, like Ghostty, may only show the desktop notification when the window is not focused.
 
 ### Commands and shortcuts of panel-shell
 
@@ -230,6 +230,7 @@ Commands:
 | Command | What it does |
 |---|---|
 | `/panel` | Opens the panel. |
+| `/panel notify` | Sends a test notification, even if `notify` is `off`, and a toast says the channel used or why it was not sent. |
 | `/panel close` | Closes it. `/panel off` also works (and `/panel cerrar`, kept for compatibility). |
 
 Keyboard shortcuts. Each one is the key of the button with the same name:

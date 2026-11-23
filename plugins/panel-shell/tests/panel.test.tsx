@@ -2484,15 +2484,21 @@ test('SESIONES lleva el costo de cada fila y los totales de hoy y 7 días', asyn
   // Un solo proceso `sh` para todas las sesiones.
   expect(asked.filter(argv => argv[2]?.includes('ls -t'))).toHaveLength(1)
   // Solo cuentan las escaneadas: hoy 0.50, a 7 días 0.50 + 1.25.
-  await has(/^Sessions · 4 · today \$0\.50 · 7d \$1\.75$/)
+  // Los totales van en filas tenues bajo el título, no en él.
+  await has(/^Sessions · 4$/)
+  await has(/^Today$/)
+  await has(/^\$0\.50$/)
+  await has(/^Last 7 days$/)
+  await has(/^\$1\.75$/)
   await has(/○ Hoy\s+\$0\.50 · 1h$/)
   await has(/○ Hace diez días\s+\$2\.00 · 10d$/)
   // Sin gasto no hay costo en la fila.
   await has(/○ Sin gasto\s+30m$/)
 
-  // El filtro sigue funcionando y el título conserva los totales.
+  // El filtro sigue funcionando y los totales se quedan.
   await ui.input({ key: 'session-filter', text: 'tres' })
-  await has(/^Sessions · 1 of 4 · today/)
+  await has(/^Sessions · 1 of 4$/)
+  await has(/^Last 7 days$/)
   await ui.unmount()
 })
 
@@ -2693,7 +2699,9 @@ test('SESIONES usa el costo en vivo en la fila actual y lo suma a los totales', 
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
-  await has(/^Sessions · 2 · today \$1\.25 · 7d \$1\.25$/)
+  await has(/^Sessions · 2$/)
+  await has(/^Last 7 days$/)
+  await has(/^\$1\.25$/)
   await has(/● Actual\s+\$0\.75 · this$/)
   await ui.unmount()
 })
@@ -2717,6 +2725,26 @@ const notifyEngine = (on: On, rejects = false) => {
   })
 
   return { sent, cancelled }
+}
+
+/** Un motor falso que responde a `ui.notify` con ese resultado y guarda los toasts. */
+const resultEngine = (on: On, result: Record<string, unknown> | Error) => {
+  const toasts: string[] = []
+  costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('command.run', (_, e) => ({ text: `ran ${e.command}` }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('ui.notify', () => {
+    if (result instanceof Error) throw result
+
+    return { value: result as never }
+  })
+
+  return toasts
 }
 
 const finish = (durationMs: number, agentId?: string) =>
@@ -2840,4 +2868,50 @@ test('sin gasto alguno no sale Cost by model', async ($, on) => {
   const ui = await mountVeryWide($.ui)
   expect(await ui.find({ type: 'Text', text: /Cost by model|Earlier/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('/panel notify manda una prueba y dice por qué canal salió', { options: { notify: 'off' } }, async ($, on) => {
+  const toasts = resultEngine(on, { isSent: true, channel: 'ghostty' })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const out = await $.command.run({ command: 'panel', args: 'notify' } as Parameters<typeof $.command.run>[0])
+  expect(toasts).toEqual(['Notification sent via ghostty.'])
+  expect(out.text).toBe('Notification sent via ghostty.')
+})
+
+test('/panel notify con terminal_bell avisa que solo suena', async ($, on) => {
+  const toasts = resultEngine(on, { isSent: true, channel: 'terminal_bell' })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'panel', args: 'notify' } as Parameters<typeof $.command.run>[0])
+  expect(toasts[0]).toMatch(/via terminal_bell\. .*only rings.*preferredNotifChannel/)
+})
+
+test('/panel notify sin envío dice el motivo y una pista', async ($, on) => {
+  const toasts = resultEngine(on, { isSent: false, reason: 'no-channel' })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'panel', args: 'notify' } as Parameters<typeof $.command.run>[0])
+  expect(toasts).toEqual([
+    'Notification not sent: no-channel. check Notifications and preferredNotifChannel in /config.',
+  ])
+})
+
+test('/panel notify con rechazo muestra el mensaje del error', async ($, on) => {
+  const toasts = resultEngine(on, new Error('sin canal'))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'panel', args: 'notify' } as Parameters<typeof $.command.run>[0])
+  // El motor reemplaza el mensaje cuando un hook lanza; basta con que salga el error.
+  expect(toasts).toHaveLength(1)
+  expect(toasts[0]).toMatch(/^Notification not sent: .+\.$/)
+})
+
+test('si los envíos reales fallan, el toast sale una sola vez por sesión', async ($, on) => {
+  const toasts = resultEngine(on, { isSent: false, reason: 'refused' })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.complete(finish(120_000))
+  await $.turn.complete(finish(130_000))
+  expect(toasts).toEqual(['Notification not sent: refused. a hook blocked it.'])
 })
