@@ -140,12 +140,12 @@ To turn it off without uninstalling: `claude plugin disable panel-shell@jonico22
 #### MAIN
 
 - **Status:** folder, branch, model, effort, permission mode and session duration.
-- **Context:** bar, tokens and cost. Next to the total, `(+$X)` is the cost of the whole last turn (every API call in it, subagents included); it stays until the next turn starts and is dropped after `/resume` or `/clear`. Under the total, a dim line shows the cost per model (for example `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), from the most to the least expensive. Each turn's cost (subagents included) is credited to the model that answered it, live; a resumed session starts from the transcript's last cost record. It leaves out models under $0.01 and hides when none reaches a cent. If subagents spent $0.01 or more, it ends with `(subagents $0.52)`.
+- **Context:** bar, tokens and cost. Next to the total, `(+$X)` is the cost of the whole last turn (every API call in it, subagents included); it stays until the next turn starts and is dropped after `/resume` or `/clear`.
+- **Cost by model:** one row per model with its cost (`Opus 5.5  $1.70`), from the most to the least expensive. Each turn's cost (subagents included) is credited to the model that answered it, live; a resumed session starts from the transcript's last cost record. It leaves out models under $0.01. If subagents spent $0.01 or more, a dim `of which subagents` row follows. If part of the total was spent before the panel started attributing (for example, the session was already open when the plugin updated), a dim `Earlier` row holds it, so the models plus `Earlier` add up to the total. It hides when there is no model at $0.01 or more and no `Earlier`.
 - **Cache:** countdown and a bar that turns orange at 70% and red at 90%. It shows the percentage read from the cache. It warns you with a toast before it expires.
 - **Limits:** the usage limits (5 hours, week, spend).
 - **MCP:** the servers; the ones that stop providing tools show in red.
-- **Changes:** the files with changes.
-- **Subagents and To-dos:** a summary of both.
+- **To-dos:** a summary of the task list (subagents and the full list are in TASKS; the changed files are in GIT).
 - **Compact:** button to compact the context.
 - **Mode** (normal, plan, bypass permissions...): this is the permission mode. It is read from the session transcript, so it runs one turn behind if you change it with shift+tab.
 - **Effort** (low, medium, high...): it also comes from the transcript. It appears after the first reply and runs one turn behind if you change it with `/effort`.

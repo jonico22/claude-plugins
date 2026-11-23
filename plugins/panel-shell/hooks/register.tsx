@@ -160,7 +160,6 @@ const MAX_DIFF_LINES = 20
 // En GIT cada grupo de Cambios muestra hasta este número de archivos.
 const MAX_GROUP_FILES = 15
 // En MAIN la lista de cambios es más corta: comparte el panel con todo lo demás.
-const MAX_MAIN_FILES = 6
 const MAX_MCP = 8
 // Cuántas rutas tocadas por Claude se guardan, y cuántos checks fallidos o
 // pendientes del PR se nombran.
@@ -307,17 +306,6 @@ function modelCostsOf(byModel: Record<string, number>): PanelModelCost[] {
     .filter(([, usd]) => usd >= 0.01)
     .map(([name, usd]) => ({ name, usd }))
     .sort((a, b) => b.usd - a.usd)
-}
-
-/**
- * La línea "Opus 5.5 $1.20 · Sonnet 5.5 $0.30 (subagents $0.52)"; vacía si ningún
- * modelo llega al centavo. La parte de subagentes sale si su costo llega a uno.
- */
-const modelLine = (costs: PanelModelCost[], subagentsUsd = 0): string => {
-  if (costs.length === 0) return ''
-  const line = costs.map(one => `${one.name} $${one.usd.toFixed(2)}`).join(' · ')
-
-  return subagentsUsd >= 0.01 ? `${line} (subagents $${subagentsUsd.toFixed(2)})` : line
 }
 
 /** La suma de un costo por id. */
@@ -1895,10 +1883,9 @@ export const register: Register = (on, options) => {
     typeof options['terminal'] === 'string' && options['terminal'] !== 'auto'
       ? options['terminal']
       : undefined
-  // En /config: qué secciones de MAIN se muestran (GIT siempre muestra Cambios).
+  // En /config: qué secciones de MAIN se muestran.
   const isLimitsOn = options['showLimits'] !== 'off'
   const isMcpOn = options['showMcp'] !== 'off'
-  const isChangesOn = options['showChanges'] !== 'off'
   // En /config: la sección Pull request de GIT, que lee `gh` (red).
   isPrOn = options['showPr'] !== 'off'
   // En /config: los avisos nativos (off, long = turnos largos, all = también PR
@@ -2165,7 +2152,6 @@ export const register: Register = (on, options) => {
     const stats = await read($, cacheStats)
     const spent = await read($, session)
     const liveCosts = await read($, modelCosts)
-    const perModel = modelLine(modelCostsOf(liveCosts.byModel), sumOf(liveCosts.byAgent))
     // Lo que le queda al caché, contado con el reloj del panel.
     const cacheLeft =
       cachedAt === null ? null : cacheMs - (Math.max(ticked, cachedAt) - cachedAt)
@@ -2206,9 +2192,24 @@ export const register: Register = (on, options) => {
     // El costo de cada subagente mostrado y su suma, para la pestaña TASKS.
     const agentUsd = (id: string) => liveCosts.byAgent[id] ?? 0
     const agentsUsd = agentRows.reduce((sum, agent) => sum + agentUsd(agent.id), 0)
-    const activeAgents = agentRows.filter(agent => !ENDED.has(agent.status)).length
     const current = todoRows.find(todo => todo.status === 'in_progress')
     const columns = Math.max(20, e.props.bodyColumns)
+    // Sección "Cost by model": un modelo por fila (≥ $0.01); después, tenues, lo
+    // de los subagentes y lo gastado antes de que el panel empezara a atribuir.
+    const costRows: { label: string; usd: number; dim: boolean }[] = []
+    const byModelUsd = modelCostsOf(liveCosts.byModel)
+    for (const one of byModelUsd) costRows.push({ label: one.name, usd: one.usd, dim: false })
+    const subagentsUsd = sumOf(liveCosts.byAgent)
+    // El total más reciente: el de la vista o el de la última atribución (esa
+    // también corre en turnos de subagentes, que no refrescan la vista).
+    const totalUsd = Math.max(now?.usd ?? 0, liveCosts.baseUsd ?? 0)
+    const earlierUsd = totalUsd - sumOf(liveCosts.byModel)
+    if (byModelUsd.length > 0 || earlierUsd >= 0.01) {
+      if (subagentsUsd >= 0.01) {
+        costRows.push({ label: 'of which subagents', usd: subagentsUsd, dim: true })
+      }
+      if (earlierUsd >= 0.01) costRows.push({ label: 'Earlier', usd: earlierUsd, dim: true })
+    }
 
     if (now === null) {
       return <Text dimColor>Reading the session…</Text>
@@ -2427,17 +2428,6 @@ export const register: Register = (on, options) => {
         </Box>
       )
     }
-    // MAIN: lista plana con tope; el total va en el título.
-    const changes = (max: number) => (
-      <Box flexDirection="column">
-        {changesTitle()}
-        {files.length === 0 && <Text dimColor>No pending changes.</Text>}
-        {files.slice(0, max).map(file => fileRow(file, file.code))}
-        {(repo?.total ?? files.length) > max && (
-          <Text dimColor>… and {(repo?.total ?? files.length) - max} more</Text>
-        )}
-      </Box>
-    )
     // GIT: tres grupos. Un archivo con cambios en el índice y en la carpeta
     // (p. ej. "MM") sale en los dos primeros.
     const groups = [
@@ -3047,11 +3037,15 @@ export const register: Register = (on, options) => {
             {hasRoomForTurn && turnCost !== '' && <Text dimColor>{turnCost}</Text>}
           </Text>
         </Box>
-        {perModel !== '' && (
-          <Text dimColor wrap="truncate-end">
-            {perModel}
-          </Text>
-        )}
+        {costRows.length > 0 && title('Cost by model')}
+        {costRows.map(one => (
+          <Box flexDirection="row" justifyContent="space-between" gap={1}>
+            <Box flexShrink={0}>
+              <Text dimColor>{one.label}</Text>
+            </Box>
+            <Text dimColor={one.dim}>{`$${one.usd.toFixed(2)}`}</Text>
+          </Box>
+        ))}
 
         {title(
           'Cache',
@@ -3123,17 +3117,6 @@ export const register: Register = (on, options) => {
           <Text dimColor>… and {servers.length - MAX_MCP} more</Text>
         )}
 
-        {isChangesOn && repo !== null && changes(MAX_MAIN_FILES)}
-
-        {agentRows.length > 0 && (
-          <Box marginTop={1}>
-            <Text wrap="truncate-end">
-              <Text bold color={accent}>
-                Subagents · {activeAgents} of {agentRows.length} active
-              </Text>
-            </Text>
-          </Box>
-        )}
         {todoRows.length > 0 && (
           <Box marginTop={1}>
             <Text wrap="truncate-end">

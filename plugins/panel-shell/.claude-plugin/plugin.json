@@ -1,6 +1,6 @@
 {
   "name": "panel-shell",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "description": "Panel for Claude Code: folder, git with lazygit, context, cache, limits, MCP, subagents, tasks and past sessions",
   "author": {
     "name": "Jose Luis Yana"
@@ -100,16 +100,6 @@
       "type": "string",
       "title": "Show Pull request",
       "description": "Shows the Pull request section (and its CI checks) on the GIT tab. Needs gh installed and signed in.",
-      "options": [
-        "on",
-        "off"
-      ],
-      "default": "on"
-    },
-    "showChanges": {
-      "type": "string",
-      "title": "Show Changes",
-      "description": "Shows the Changes section on the MAIN tab. The GIT tab always shows Changes.",
       "options": [
         "on",
         "off"

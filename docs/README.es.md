@@ -140,12 +140,12 @@ La interfaz del panel está en inglés: los nombres de pestañas, secciones, bot
 #### MAIN
 
 - **Status** (estado): carpeta, rama, modelo, esfuerzo, modo de permisos y duración de la sesión.
-- **Context** (contexto): barra, tokens y costo (`Cost`). Junto al total, `(+$X)` es el costo del último turno entero (todas sus llamadas a la API, subagentes incluidos); se queda hasta que empieza el siguiente turno y se descarta tras `/resume` o `/clear`. Bajo el total, una línea tenue muestra el costo por modelo (por ejemplo `Opus 5.5 $1.20 · Sonnet 5.5 $0.30`), del más al menos caro. El costo de cada turno (subagentes incluidos) se atribuye en vivo al modelo que respondió; una sesión reanudada parte del último registro de costo de la transcripción. Omite los modelos de menos de $0.01 y se oculta si ninguno llega a un centavo. Si los subagentes gastaron $0.01 o más, termina con `(subagents $0.52)`.
+- **Context** (contexto): barra, tokens y costo (`Cost`). Junto al total, `(+$X)` es el costo del último turno entero (todas sus llamadas a la API, subagentes incluidos); se queda hasta que empieza el siguiente turno y se descarta tras `/resume` o `/clear`.
+- **Cost by model** (costo por modelo): una fila por modelo con su costo (`Opus 5.5  $1.70`), del más al menos caro. El costo de cada turno (subagentes incluidos) se atribuye en vivo al modelo que respondió; una sesión reanudada parte del último registro de costo de la transcripción. Omite los modelos de menos de $0.01. Si los subagentes gastaron $0.01 o más, sigue una fila tenue `of which subagents` (de los cuales, subagentes). Si parte del total se gastó antes de que el panel empezara a atribuir (por ejemplo, la sesión ya estaba abierta al actualizar el plugin), una fila tenue `Earlier` (antes) la recoge, para que los modelos más `Earlier` sumen el total. Se oculta si no hay ningún modelo con $0.01 o más ni `Earlier`.
 - **Cache** (caché): cuenta regresiva y barra que pasa a naranja al 70 % y a roja al 90 %. Muestra el porcentaje leído del caché. Avisa en un toast antes de que venza.
 - **Limits** (límites de uso): 5 hours, week y spend.
 - **MCP:** los servidores; los que dejan de aportar herramientas salen en rojo.
-- **Changes** (cambios): los archivos con cambios.
-- **Subagents** y **To-dos** (subagentes y tareas): un resumen de ambos.
+- **To-dos** (tareas): un resumen de la lista de tareas (los subagentes y la lista completa están en TASKS; los archivos con cambios, en GIT).
 - **Compact:** botón para compactar el contexto.
 - **Mode** (modo; normal, plan, bypass permissions...): es el modo de permisos. Se lee de la transcripción de la sesión, así que va un turno atrasado si lo cambias con shift+tab.
 - **Effort** (esfuerzo; low, medium, high...): sale igual de la transcripción. Aparece tras la primera respuesta y va un turno atrasada si lo cambias con `/effort`.

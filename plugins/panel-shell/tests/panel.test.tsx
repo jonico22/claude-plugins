@@ -128,7 +128,8 @@ test('muestra las tareas y los subagentes con sus tokens', async ($, on) => {
   // En MAIN solo hay un resumen de una línea por sección.
   await has(/To-dos · 0 of 1/)
   await has(/Escribir pruebas/)
-  await has(/Subagents · 1 of 1 active/)
+  // Los subagentes ya no tienen resumen en MAIN: viven en TASKS.
+  expect(await ui.find({ type: 'Text', text: /Subagents/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /Buscar rutas/ })).toBeUndefined()
 
@@ -496,10 +497,9 @@ test('MAIN lista los servidores MCP y los archivos con cambios', async ($, on) =
   await has(/^1 tool$/)
   await has(/● engram/)
   await has(/^2 tools$/)
-  // Los cambios se ven sin pasar a la pestaña GIT.
-  await has(/Changes · 2/)
-  await has(/hooks\/register\.tsx/)
-  await has(/\?\? notas\.md/)
+  // Los cambios ya no salen en MAIN: viven en GIT.
+  expect(await ui.find({ type: 'Text', text: /Changes/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /notas\.md/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -607,9 +607,9 @@ test('Cambios muestra las líneas por archivo y los totales', async ($, on) => {
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
 
+  await ui.press({ key: 'tab-git' })
   await has(/Changes · 3  \+12 −3/)
-  await has(/^\+12$/)
-  await has(/^−3$/)
+  await has(/^\+12 −3$/)
   // El archivo sin seguimiento y el binario salen sin números.
   expect(await ui.find({ type: 'Text', text: /^\+0$/ })).toBeUndefined()
   await ui.unmount()
@@ -634,6 +634,7 @@ test('sin commits el numstat falla y Cambios sale sin números', async ($, on) =
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-git' })
   expect((await ui.find({ type: 'Text', text: /Changes/ }))?.text).toBe('Changes · 1')
   await ui.unmount()
 })
@@ -990,7 +991,6 @@ const sectionsEngine = (on: On) => {
 const SECTIONS = [
   { option: 'showLimits', text: /^Limits$/ },
   { option: 'showMcp', text: /MCP · 1/ },
-  { option: 'showChanges', text: /Changes · 1/ },
 ] as const
 
 for (const one of SECTIONS) {
@@ -1004,8 +1004,9 @@ for (const one of SECTIONS) {
     for (const other of SECTIONS.filter(item => item.option !== one.option)) {
       expect(await ui.find({ type: 'Text', text: other.text })).toBeDefined()
     }
+    // MAIN no lista cambios; GIT sí.
+    expect(await ui.find({ type: 'Text', text: /Changes/ })).toBeUndefined()
     await ui.press({ key: 'tab-git' })
-    // La pestaña GIT siempre muestra Cambios.
     expect(await ui.find({ type: 'Text', text: /Changes · 1/ })).toBeDefined()
     await ui.unmount()
   })
@@ -1141,18 +1142,14 @@ test('GIT con el árbol limpio dice Sin cambios pendientes', async ($, on) => {
   await ui.unmount()
 })
 
-test('GIT muestra 15 por grupo y "… y N más"; MAIN sigue en 6', async ($, on) => {
+test('GIT muestra 15 por grupo y "… y N más"; MAIN no lista archivos', async ($, on) => {
   const many = Array.from({ length: 20 }, (_, index) => ` M f${index}.ts\n`).join('')
   statusEngine(on, many)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // MAIN: 6 archivos, lista plana y el total en el título.
-  expect(await ui.find({ type: 'Text', text: /^Changes · 20$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /f5\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /f6\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^… and 14 more$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Unstaged/ })).toBeUndefined()
+  // MAIN no lista archivos.
+  expect(await ui.find({ type: 'Text', text: /Changes|f0\.ts/ })).toBeUndefined()
 
   await ui.press({ key: 'tab-git' })
   expect(await ui.find({ type: 'Text', text: /^Unstaged · 20$/ })).toBeDefined()
@@ -1685,11 +1682,8 @@ test('un Edit marca el archivo con ✦, cuenta en el título y el botón filtra'
   const lacks = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeUndefined()
 
-  await has(/^Changes · 2 · 1 by Claude$/)
-  await has(/^M ✦a\.ts$/)
-  await has(/^M  b\.ts$/)
-
   await ui.press({ key: 'tab-git' })
+  await has(/^Changes · 2 · 1 by Claude$/)
   await has(/^M ✦a\.ts/)
   await has(/^M  b\.ts/)
   expect((await ui.find({ type: 'Button', key: 'only-touched' }))?.props?.label).toBe('Claude only')
@@ -2391,6 +2385,30 @@ const costState = (usage: Record<string, number>) =>
 const mountVeryWide = (ui: Parameters<TestBody>[0]['ui']) =>
   ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 120 }, surface: 'terminal' })
 
+const COST_LABELS = [
+  'Opus 5.5',
+  'Sonnet 5.5',
+  'Haiku 4.5',
+  'Fable 5.2',
+  'modelo-raro',
+  'of which subagents',
+  'Earlier',
+]
+
+/** Las filas de "Cost by model" como "etiqueta monto", en el orden en que se dibujan. */
+const costRowsOf = async (ui: Awaited<ReturnType<typeof mountVeryWide>>) => {
+  const found = await ui.findAll({
+    type: 'Text',
+    text: new RegExp(`^(\\$\\d+\\.\\d\\d|${COST_LABELS.map(one => one.replace('.', '\\.')).join('|')})$`),
+  })
+  const rows: string[] = []
+  for (let at = 0; at < found.length; at += 2) {
+    rows.push(`${found[at]?.text} ${found[at + 1]?.text}`)
+  }
+
+  return rows
+}
+
 test('MAIN muestra el costo por modelo, del mayor al menor, con nombres cortos', async ($, on) => {
   modeEngine(
     on,
@@ -2406,30 +2424,32 @@ test('MAIN muestra el costo por modelo, del mayor al menor, con nombres cortos',
 
   const ui = await mountVeryWide($.ui)
   // Haiku costó menos de un centavo: se omite; el id desconocido sale tal cual.
-  expect(
-    await ui.find({
-      type: 'Text',
-      text: /^Opus 5\.5 \$1\.20 · Fable 5\.2 \$0\.50 · Sonnet 5\.5 \$0\.30 · modelo-raro \$0\.02$/,
-    }),
-  ).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Cost by model$/ })).toBeDefined()
+  expect(await costRowsOf(ui)).toEqual([
+    'Opus 5.5 $1.20',
+    'Fable 5.2 $0.50',
+    'Sonnet 5.5 $0.30',
+    'modelo-raro $0.02',
+  ])
   await ui.unmount()
 })
 
-test('con un solo modelo sale la línea; sin ninguno sobre un centavo, no', async ($, on) => {
+test('con un solo modelo sale una fila; el costo de menos de un centavo no cuenta', async ($, on) => {
   modeEngine(on, costState({ 'claude-opus-5-5': 1.2, 'claude-haiku-4-5': 0.001 }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await mountVeryWide($.ui)
-  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.20$/ })).toBeDefined()
+  expect(await costRowsOf(ui)).toEqual(['Opus 5.5 $1.20'])
   await ui.unmount()
 })
 
-test('sin cost-state ni gasto, no sale la línea por modelo', async ($, on) => {
+test('sin ningún modelo sobre un centavo ni gasto previo, la sección no sale', async ($, on) => {
   modeEngine(on, costState({ 'claude-haiku-4-5': 0.001 }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await mountVeryWide($.ui)
   expect(await ui.find({ type: 'Text', text: /Haiku/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Cost by model/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -2506,9 +2526,8 @@ test('el costo por modelo en vivo atribuye cada turno al modelo que respondió',
   await $.turn.complete(answered('claude-sonnet-5-5'))
 
   const ui = await mountVeryWide($.ui)
-  expect(
-    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.20 · Sonnet 5\.5 \$0\.50$/ }),
-  ).toBeDefined()
+  // Los modelos suman el total (1.70): no hay fila Earlier.
+  expect(await costRowsOf(ui)).toEqual(['Opus 5.5 $1.20', 'Sonnet 5.5 $0.50'])
   await ui.unmount()
 })
 
@@ -2525,13 +2544,17 @@ test('el turno de un subagente con otro modelo se atribuye a ese modelo', async 
   await $.turn.complete(answered('claude-haiku-4-5-20251001', 'a1'))
 
   const ui = await mountVeryWide($.ui)
-  expect(
-    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00 · Haiku 4\.5 \$0\.40 \(subagents \$0\.40\)$/ }),
-  ).toBeDefined()
+  // La fila de subagentes va al final y tenue.
+  expect(await costRowsOf(ui)).toEqual([
+    'Opus 5.5 $1.00',
+    'Haiku 4.5 $0.40',
+    'of which subagents $0.40',
+  ])
+  expect((await ui.find({ type: 'Text', text: /^of which subagents$/ }))?.props?.dimColor).toBe(true)
   await ui.unmount()
 })
 
-test('el costo de un subagente sale en su fila, en el título de TASKS y en MAIN', async ($, on) => {
+test('el costo de un subagente sale en su fila, en el título de TASKS y en Cost by model', async ($, on) => {
   const engine = costEngine(on)
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('agent.list', () => ({
@@ -2551,7 +2574,11 @@ test('el costo de un subagente sale en su fila, en el título de TASKS y en MAIN
   const ui = await mountVeryWide($.ui)
   const has = async (text: RegExp) =>
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
-  await has(/^Opus 5\.5 \$1\.35 · Haiku 4\.5 \$0\.52 \(subagents \$0\.52\)$/)
+  expect(await costRowsOf(ui)).toEqual([
+    'Opus 5.5 $1.35',
+    'Haiku 4.5 $0.52',
+    'of which subagents $0.52',
+  ])
 
   await ui.press({ key: 'tab-tasks' })
   await has(/^Subagents · 1 · \$0\.52$/)
@@ -2559,7 +2586,7 @@ test('el costo de un subagente sale en su fila, en el título de TASKS y en MAIN
   await ui.unmount()
 })
 
-test('sin subagentes no sale "(subagents" y uno barato no pone costo', async ($, on) => {
+test('sin subagentes no sale la fila of which subagents y uno barato no pone costo', async ($, on) => {
   const engine = costEngine(on)
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('agent.list', () => ({
@@ -2574,7 +2601,7 @@ test('sin subagentes no sale "(subagents" y uno barato no pone costo', async ($,
   await $.turn.complete(answered('claude-opus-5-5', 'a1'))
 
   const ui = await mountVeryWide($.ui)
-  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00$/ })).toBeDefined()
+  expect(await costRowsOf(ui)).toEqual(['Opus 5.5 $1.00'])
   await ui.press({ key: 'tab-tasks' })
   expect(await ui.find({ type: 'Text', text: /^Subagents · 1$/ })).toBeDefined()
   await ui.unmount()
@@ -2594,9 +2621,7 @@ test('al reanudar, la semilla del cost-state y el avance en vivo no se cuentan d
   await $.turn.complete(answered('claude-sonnet-5-5'))
 
   const ui = await mountVeryWide($.ui)
-  expect(
-    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$3\.00 · Sonnet 5\.5 \$1\.50$/ }),
-  ).toBeDefined()
+  expect(await costRowsOf(ui)).toEqual(['Opus 5.5 $3.00', 'Sonnet 5.5 $1.50'])
   await ui.unmount()
 })
 
@@ -2620,10 +2645,9 @@ test('si cambia el inicio de sesión del motor, el costo por modelo se reinicia'
   await $.turn.complete(answered('claude-sonnet-5-5'))
 
   const ui = await mountVeryWide($.ui)
-  // Solo cuenta lo de después del reinicio (la base es 0.5).
-  expect(
-    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$0\.50 · Sonnet 5\.5 \$0\.50$/ }),
-  ).toBeDefined()
+  // Solo se atribuye lo de después del reinicio (la base es 0.5); esos 0.5 salen
+  // como Earlier para que las filas sumen el total (1.5).
+  expect(await costRowsOf(ui)).toEqual(['Opus 5.5 $0.50', 'Sonnet 5.5 $0.50', 'Earlier $0.50'])
   await ui.unmount()
 })
 
@@ -2641,9 +2665,7 @@ test('un incremento negativo no resta del costo por modelo', async ($, on) => {
   await $.turn.complete(answered('claude-sonnet-5-5'))
 
   const ui = await mountVeryWide($.ui)
-  expect(
-    await ui.find({ type: 'Text', text: /^Opus 5\.5 \$1\.00 · Sonnet 5\.5 \$0\.50$/ }),
-  ).toBeDefined()
+  expect(await costRowsOf(ui)).toEqual(['Opus 5.5 $1.00', 'Sonnet 5.5 $0.50'])
   await ui.unmount()
 })
 
@@ -2770,4 +2792,52 @@ test('con notify en all, el caché por vencer se programa y un turno nuevo lo ca
   cancelled.length = 0
   await $.turn.start({ text: 'otra', turnId: 't2' })
   expect(cancelled).toEqual(['cache'])
+})
+
+test('lo gastado antes de que el panel atribuyera sale como Earlier, tenue y al final', async ($, on) => {
+  const engine = costEngine(on)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('agent.list', () => ({ value: [] }))
+  // La sesión ya traía 0.50 sin atribuir (sin cost-state en la transcripción).
+  engine.usd = 0.5
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  engine.usd = 1.2
+  await $.turn.complete(answered('claude-opus-5-5'))
+  engine.usd = 1.5
+  await $.turn.complete(answered('claude-haiku-4-5-20251001', 'a1'))
+
+  const ui = await mountVeryWide($.ui)
+  // Modelos + Earlier suman el total (1.50); Earlier va tras la fila de subagentes.
+  expect(await costRowsOf(ui)).toEqual([
+    'Opus 5.5 $0.70',
+    'Haiku 4.5 $0.30',
+    'of which subagents $0.30',
+    'Earlier $0.50',
+  ])
+  expect((await ui.find({ type: 'Text', text: /^Earlier$/ }))?.props?.dimColor).toBe(true)
+  await ui.unmount()
+})
+
+test('con solo lo gastado antes, Cost by model sale con la fila Earlier', async ($, on) => {
+  const engine = costEngine(on)
+  engine.usd = 0.5
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await mountVeryWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /^Cost by model$/ })).toBeDefined()
+  expect(await costRowsOf(ui)).toEqual(['Earlier $0.50'])
+  await ui.unmount()
+})
+
+test('sin gasto alguno no sale Cost by model', async ($, on) => {
+  const engine = costEngine(on)
+  engine.usd = 0
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const ui = await mountVeryWide($.ui)
+  expect(await ui.find({ type: 'Text', text: /Cost by model|Earlier/ })).toBeUndefined()
+  await ui.unmount()
 })
