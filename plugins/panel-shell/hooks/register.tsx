@@ -1195,6 +1195,74 @@ const refresh = async (
   }
   const counts = await readMcp($)
   if (counts !== null) await update($, mcp, known => mergeMcp(known, counts))
+  await updateStatusLine($, statusChosenCacheMs, statusOptions).catch(() => undefined)
+}
+
+// Lo que /config fijó, para que refresh y el reloj dibujen la misma línea.
+let statusChosenCacheMs: number | undefined
+let statusOptions: StatusOptions = { mode: 'auto', isLimitsOn: true }
+// El último texto fijado: si no cambió, no se vuelve a llamar a $.ui.status.
+let lastStatus: string | undefined
+
+type StatusOptions = { mode: 'auto' | 'on' | 'off'; isLimitsOn: boolean }
+
+const STATUS_LIMIT_NAMES: Record<string, string> = {
+  five_hour: '5h',
+  seven_day: 'wk',
+  spend_limit: 'spend',
+}
+
+/**
+ * Línea de estado bajo el prompt (dos líneas) cuando el panel no se dibuja:
+ * contexto y caché, y los límites. Con el panel a la vista se limpia.
+ */
+async function updateStatusLine(
+  $: EngineInterface,
+  chosen: number | undefined,
+  options: StatusOptions,
+) {
+  let text: string | undefined
+  if (options.mode !== 'off') {
+    const panes = await $.ui.panes().catch(() => [])
+    const isPlaced = panes.find(pane => pane.id === PANE)?.isPlaced === true
+    if (options.mode === 'on' || !isPlaced) {
+      const now = await read($, info)
+      if (now !== null) {
+        const at = await $.clock.now()
+        const cachedAt = (await read($, cache)).at
+        const cacheMs = await cacheDuration($, chosen)
+        const cacheLeft = cachedAt === null ? null : cacheMs - (Math.max(at, cachedAt) - cachedAt)
+        const cacheText =
+          cacheLeft === null ? '—' : cacheLeft <= 0 ? 'cold' : countdown(cacheLeft)
+        const ctx =
+          now.tokens === undefined
+            ? 'ctx —'
+            : `ctx ${Math.round(now.percent ?? (now.tokens / now.window) * 100)}% ` +
+              `${compact(now.tokens)}/${compact(now.window)} ` +
+              `(${compact(Math.max(0, now.window - now.tokens))} left)`
+        const lines = [`${ctx} · cache ${cacheText}`]
+        if (options.isLimitsOn && now.limits.length > 0) {
+          lines.push(
+            now.limits
+              .map(limit => {
+                const left = limit.resetsAt === undefined ? null : limit.resetsAt - at
+                const name = STATUS_LIMIT_NAMES[limit.kind] ?? limit.kind
+
+                return `${name} ${Math.round(limit.percentUsed)}%${
+                  left === null || left <= 0 ? '' : ` ↻${countdown(left)}`
+                }`
+              })
+              .join(' · '),
+          )
+        }
+        text = lines.join('\n')
+      }
+    }
+  }
+  if (text === lastStatus) return
+
+  lastStatus = text
+  $.ui.status(text)
 }
 
 /**
@@ -1293,6 +1361,7 @@ async function tickPanel(
   const at = await $.clock.now()
   await update($, clock, () => at)
   if (isLazygitOpen) await refresh($).catch(() => undefined)
+  else await updateStatusLine($, chosen, statusOptions).catch(() => undefined)
   // Con checks pendientes y GIT a la vista, el PR se relee como mucho cada minuto.
   if (
     isPrOn &&
@@ -1922,6 +1991,15 @@ export const register: Register = (on, options) => {
     options['notify'] === 'off' || options['notify'] === 'all' ? options['notify'] : 'long'
   const afterSeconds = Number(options['notifyAfter'])
   notifyAfterMs = (Number.isFinite(afterSeconds) && afterSeconds >= 0 ? afterSeconds : 60) * 1000
+  statusChosenCacheMs = chosenCacheMs
+  statusOptions = {
+    mode:
+      options['compactStatus'] === 'on' || options['compactStatus'] === 'off'
+        ? options['compactStatus']
+        : 'auto',
+    isLimitsOn,
+  }
+  lastStatus = undefined
   let ticking: { cancel: () => void } | undefined
   on('session.start', async ($, e, next) => {
     await $.command.register({

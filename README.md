@@ -211,6 +211,7 @@ Stash:
 
 - **On start:** the panel opens by itself.
 - **Commands:** `/panel` opens it, `/panel close` closes it and `/panel notify` sends a test notification. There is more detail in [Commands and shortcuts](#commands-and-shortcuts-of-panel-shell).
+- **Compact status line:** when the terminal is too narrow to draw the panel, a two-line status under the prompt shows context, cache and limits (`ctx 73% 199k/272k (73k left) · cache 3:20` / `5h 42% ↻2:10 · wk 18% ↻3d 4h`). The `compactStatus` option sets it: `auto` (only while the panel is not drawn, the default), `on` (always) or `off`.
 - **`/config`:** there you choose the color, the cache duration (by default it reads it from `promptCacheTtl`), the expiry warning, the terminal for the windows (lazygit, `View diff` and `Resume`), which MAIN sections are shown and whether GIT shows the Pull request (`showPr`), the notifications (`notify`) and how long a turn must last to count as long (`notifyAfter`, 60 seconds by default). Other ways to set them are in [Configure on install](#configure-on-install).
 
 #### Notifications

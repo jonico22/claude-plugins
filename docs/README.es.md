@@ -211,6 +211,7 @@ Stash:
 
 - **Al iniciar:** el panel se abre solo.
 - **Comandos:** `/panel` lo abre, `/panel close` lo cierra y `/panel notify` manda una notificación de prueba. Hay más detalle en [Comandos y atajos](#comandos-y-atajos-de-panel-shell).
+- **Línea de estado compacta:** cuando la terminal es muy angosta para dibujar el panel, una línea de estado de dos líneas bajo el prompt muestra contexto, caché y límites (`ctx 73% 199k/272k (73k left) · cache 3:20` / `5h 42% ↻2:10 · wk 18% ↻3d 4h`). La opción `compactStatus` la controla: `auto` (solo con el panel sin dibujar, por defecto), `on` (siempre) u `off`.
 - **`/config`:** ahí eliges el color, la duración del caché (por defecto la lee de `promptCacheTtl`), el aviso de vencimiento, la terminal de las ventanas (lazygit, `View diff` y `Resume`), qué secciones de MAIN se muestran si GIT muestra el Pull request (`showPr`), las notificaciones (`notify`) y cuánto debe durar un turno para ser largo (`notifyAfter`, 60 segundos por defecto). Otras formas de fijarlas, en [Configurar al instalar](#configurar-al-instalar).
 
 #### Notificaciones

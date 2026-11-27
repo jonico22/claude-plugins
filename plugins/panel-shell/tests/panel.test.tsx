@@ -2915,3 +2915,56 @@ test('si los envíos reales fallan, el toast sale una sola vez por sesión', asy
   await $.turn.complete(finish(130_000))
   expect(toasts).toEqual(['Notification not sent: refused. a hook blocked it.'])
 })
+
+const compactStatusEngine = (on: On, isPlaced: boolean) => {
+  const statuses: (string | undefined)[] = []
+  on('command.register', () => ({ value: { command: 'panel' } }))
+  on('ui.open', () => ({ value: { isPlaced } }))
+  on('ui.panes', () => ({
+    value: [{ id: 'panel-shell', title: 'Panel', isPlaced }],
+  }))
+  on('ui.status', (_, e) => {
+    statuses.push(e.text)
+
+    return { value: undefined }
+  })
+  mock.clock(on, { now: 1_000_000 })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/home/ana/demo' }))
+  on('session.model', () => ({ value: 'opus' }))
+  on('env.get', () => ({ value: '/home/ana' }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: 0,
+      context: { tokens: 199_000, window: 272_000, percent: 73 },
+      rateLimits: [{ kind: 'five_hour', percentUsed: 42, resetsAt: new Date(1_000_000 + 7_200_000).toISOString() }],
+      cost: { usd: 1.5 },
+    },
+  }))
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: 'main\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+
+  return statuses
+}
+
+test('con el panel sin dibujar, la línea de estado lleva dos líneas', async ($, on) => {
+  const statuses = compactStatusEngine(on, false)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(statuses.at(-1)).toBe('ctx 73% 199k/272k (73k left) · cache —\n5h 42% ↻2:00:00'.replace('2:00:00', '2h 00m'))
+})
+
+test('con el panel dibujado, la línea de estado se limpia', async ($, on) => {
+  const statuses = compactStatusEngine(on, true)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(statuses.filter(text => text !== undefined)).toEqual([])
+})
+
+test('con compactStatus en off nunca se fija la línea', { options: { compactStatus: 'off' } }, async ($, on) => {
+  const statuses = compactStatusEngine(on, false)
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(statuses.filter(text => text !== undefined)).toEqual([])
+})
